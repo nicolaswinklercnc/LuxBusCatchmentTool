@@ -37,9 +37,11 @@ KNOWN_URLS = [
     "https://ec.europa.eu/eurostat/cache/GISCO/geodatafiles/GEOSTAT_grid_POP_1K_2021_V2.zip",
     "https://gisco-services.ec.europa.eu/pub/census21/grid/GRD_1km_pop_2021_EU.zip",
     "https://gisco-services.ec.europa.eu/pub/census21/grid/GEOSTAT_grid_POP_1K_2021.zip",
+    "https://gisco-services.ec.europa.eu/pub/census21/grid/GEOSTAT_grid_POP_1K_2021_V2.zip",
+    "https://gisco-services.ec.europa.eu/pub/census21/grid/GEOSTAT_2021_1km.zip",
 ]
 GEOSTAT_PAGE = (
-    "https://ec.europa.eu/eurostat/web/gisco/geodata/population-distribution/geostat"
+    "https://ec.europa.eu/eurostat/web/gisco/geodata/population-distribution/population-grids"
 )
 MANUAL_FILE = Path(__file__).resolve().parent / "data" / "GEOSTAT_manual.zip"
 TABLE = "population_grid"
@@ -65,19 +67,24 @@ def discover_via_scrape() -> Optional[str]:
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    keywords = ("geostat", "1k", "1km")
     candidates: list[str] = []
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
-        if not href.lower().endswith(".zip"):
+        h = href.lower()
+        if not h.endswith(".zip"):
             continue
-        if not any(kw in href.lower() for kw in keywords):
+        if "2021" not in h:
+            continue
+        if "1km" not in h and "1k" not in h:
             continue
         candidates.append(urljoin(GEOSTAT_PAGE, href))
 
     if not candidates:
+        print("  no candidates matched (.zip + '2021' + '1km'/'1K').")
         return None
-    print(f"  candidates: {candidates}")
+    print(f"  candidates ({len(candidates)}):")
+    for c in candidates:
+        print(f"    {c}")
     for c in candidates:
         if head_ok(c):
             return c
@@ -107,10 +114,11 @@ def resolve_geostat_source() -> tuple[Optional[str], Optional[bytes]]:
         return None, MANUAL_FILE.read_bytes()
 
     raise RuntimeError(
-        "Could not auto-discover GEOSTAT URL. Please visit:\n"
+        "Could not auto-discover population grid URL.\n"
+        "Please visit:\n"
         f"  {GEOSTAT_PAGE}\n"
-        "Download the 1km population grid zip manually and place it at:\n"
-        f"  {MANUAL_FILE}\n"
+        "Download the 1km x 1km population grid for 2021.\n"
+        f"Place the zip at: {MANUAL_FILE}\n"
         "Then re-run this script."
     )
 
