@@ -28,7 +28,7 @@ from shapely.geometry import Point
 from db import PROJECTED_CRS, get_engine, get_psycopg2_conn  # noqa: E402
 from url_cache import get_cached_url, remember_url  # noqa: E402
 
-DATASET_SLUG = "horaires-et-arrets-des-bus-et-trams-du-luxembourg-gtfs"
+DATASET_SLUG = "horaires-et-arrets-des-transport-publics-gtfs"
 DATASET_API = f"https://data.public.lu/api/1/datasets/{DATASET_SLUG}/"
 DATASET_PAGE = f"https://data.public.lu/fr/datasets/{DATASET_SLUG}/"
 TABLE = "bus_stops"
