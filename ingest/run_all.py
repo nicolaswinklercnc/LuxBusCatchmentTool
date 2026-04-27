@@ -64,6 +64,32 @@ def create_indexes() -> None:
     print("Spatial indexes ensured on bus_stops, population_grid, communes.")
 
 
+def backfill_commune_on_bus_stops() -> None:
+    """Stamp bus_stops.commune via spatial join against communes polygons.
+
+    Stops near the border can fall outside every commune polygon and stay
+    NULL — that's expected, not an error.
+    """
+    with get_psycopg2_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE bus_stops
+            SET commune = c.name
+            FROM communes c
+            WHERE ST_Within(bus_stops.geom, c.geom);
+            """
+        )
+        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM bus_stops WHERE commune IS NOT NULL;")
+        (matched,) = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM bus_stops WHERE commune IS NULL;")
+        (unmatched,) = cur.fetchone()
+    print(
+        f"Commune backfill: {matched} stops matched, "
+        f"{unmatched} unmatched (expected for stops outside all polygons)."
+    )
+
+
 def print_summary() -> None:
     print("\nTable           | Rows loaded")
     print("----------------|------------")
@@ -81,6 +107,10 @@ def main() -> int:
         create_indexes()
     except Exception as exc:
         print(f"WARNING: could not create spatial indexes: {exc}", file=sys.stderr)
+    try:
+        backfill_commune_on_bus_stops()
+    except Exception as exc:
+        print(f"WARNING: commune backfill failed: {exc}", file=sys.stderr)
     print_summary()
     return 0
 
