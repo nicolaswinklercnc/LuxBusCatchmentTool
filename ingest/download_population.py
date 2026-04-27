@@ -209,6 +209,34 @@ def load_grid(zip_bytes: bytes) -> gpd.GeoDataFrame:
     return gdf
 
 
+def load_lu_boundary() -> gpd.GeoDataFrame:
+    """Load Luxembourg's outline as a single unified polygon from `communes`.
+
+    The bbox-pushdown read in load_grid() captures slices of Belgium, France
+    and Germany at the corners of the bounding box; this boundary is used to
+    clip those out spatially.
+    """
+    engine = get_engine()
+    try:
+        with engine.connect() as conn:
+            boundary = gpd.read_postgis(
+                "SELECT ST_Union(geom) AS geom FROM communes",
+                conn,
+                geom_col="geom",
+                crs="EPSG:3035",
+            )
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not load LU boundary from `communes` table. "
+            "Run download_communes.py first."
+        ) from exc
+    if boundary.empty or boundary.geometry.iloc[0] is None:
+        raise RuntimeError(
+            "`communes` table is empty — run download_communes.py first."
+        )
+    return boundary
+
+
 def select_and_project(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     if "GRD_ID" not in gdf.columns:
         raise RuntimeError(f"Expected GRD_ID column — got {list(gdf.columns)}")
@@ -278,6 +306,16 @@ def main() -> int:
     except Exception as exc:
         print(f"ERROR processing GEOSTAT data: {exc}", file=sys.stderr)
         return 1
+
+    try:
+        boundary = load_lu_boundary()
+    except Exception as exc:
+        print(f"ERROR loading LU boundary: {exc}", file=sys.stderr)
+        return 1
+
+    before = len(lu)
+    lu = lu[lu.intersects(boundary.geometry.iloc[0])].copy()
+    print(f"\nClipped to LU boundary: {before:,} -> {len(lu):,} rows.")
 
     total_pop = int(lu["pop_count"].sum())
     zero_or_null = int((lu["pop_count"] == 0).sum())

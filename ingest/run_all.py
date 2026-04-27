@@ -17,8 +17,8 @@ from db import get_psycopg2_conn  # noqa: E402
 
 SCRIPTS = [
     ("bus_stops", "download_gtfs"),
-    ("population_grid", "download_population"),
     ("communes", "download_communes"),
+    ("population_grid", "download_population"),
 ]
 
 
@@ -53,6 +53,12 @@ def row_count(table: str) -> int | None:
             return int(count)
     except Exception:
         return None
+
+
+def communes_ready() -> bool:
+    """download_population needs communes loaded so it can clip to the LU boundary."""
+    n = row_count("communes")
+    return n is not None and n > 0
 
 
 def create_indexes() -> None:
@@ -117,6 +123,14 @@ def main() -> int:
 
     check_postgis()
     for _table, module_name in SCRIPTS:
+        if module_name == "download_population" and not communes_ready():
+            print(
+                "\n=== Skipping download_population ===\n"
+                "communes must be loaded before population_grid. "
+                "Run download_communes first.",
+                file=sys.stderr,
+            )
+            continue
         run_one(module_name)
     try:
         create_indexes()
