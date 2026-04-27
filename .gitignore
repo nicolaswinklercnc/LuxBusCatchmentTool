@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / frontend tooling
+node_modules/
+
+# IDEs
+.idea/
+.vscode/
+
+# Raw / processed geodata (don't commit large datasets)
+data/

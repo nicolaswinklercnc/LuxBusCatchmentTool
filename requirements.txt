@@ -1,0 +1,8 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+geopandas>=0.14
+psycopg2-binary>=2.9
+gtfs-kit>=10.0
+shapely>=2.0
+pyproj>=3.6
+python-dotenv>=1.0

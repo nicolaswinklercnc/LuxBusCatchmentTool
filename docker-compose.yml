@@ -1,0 +1,36 @@
+services:
+  postgis:
+    image: postgis/postgis:15-3.3
+    container_name: luxbus-postgis
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: python:3.11-slim
+    container_name: luxbus-api
+    restart: unless-stopped
+    env_file: .env
+    working_dir: /app
+    volumes:
+      - ./api:/app
+      - ./requirements.txt:/app/requirements.txt:ro
+    ports:
+      - "8000:8000"
+    command: >
+      bash -c "pip install --no-cache-dir -r requirements.txt &&
+               uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      postgis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
