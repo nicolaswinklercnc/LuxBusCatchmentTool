@@ -16,13 +16,14 @@ Loads into table `communes`:
 """
 from __future__ import annotations
 
-import io
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import geopandas as gpd
+import pandas as pd
 import requests
 from shapely.geometry import MultiPolygon
 
@@ -34,10 +35,7 @@ DATASET_API = f"https://data.public.lu/api/1/datasets/{DATASET_SLUG}/"
 DATASET_PAGE = f"https://data.public.lu/fr/datasets/{DATASET_SLUG}/"
 TABLE = "communes"
 CACHE_KEY = "communes"
-
-NAME_FIELD_CANDIDATES = [
-    "COMMUNE", "commune", "NAME", "name", "LIBELLE", "libelle", "TEXTE", "NOM", "nom",
-]
+LAYER = "communes"
 
 
 def _resource_modified(r: dict) -> str:
@@ -75,18 +73,47 @@ def resolve_communes_url() -> str:
 
 
 def fetch_geodataframe(url: str) -> gpd.GeoDataFrame:
+    """Download the multi-layer GeoJSON and return only the communes layer.
+
+    The GDAL drivers behind geopandas need a real filesystem path to address a
+    named layer in a multi-layer GeoJSON, so the response is streamed to a
+    tempfile rather than read from BytesIO.
+    """
     print(f"Downloading commune boundaries from {url} ...")
     resp = requests.get(url, timeout=120)
     resp.raise_for_status()
-    return gpd.read_file(io.BytesIO(resp.content))
+    suffix = ".gpkg" if url.lower().endswith(".gpkg") else ".geojson"
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / f"limadmin{suffix}"
+        path.write_bytes(resp.content)
+        return gpd.read_file(path, layer=LAYER)
+
+
+def _looks_like_names(series: pd.Series) -> bool:
+    """True iff at least 80% of non-null values contain an alphabetic character."""
+    s = series.dropna().astype(str)
+    if s.empty:
+        return False
+    has_letter = s.str.contains(r"[A-Za-zÀ-ÿ]", regex=True, na=False).sum()
+    return has_letter / len(s) >= 0.8
+
+
+def pick_name_column(gdf: gpd.GeoDataFrame) -> str:
+    if "LAU1" in gdf.columns and _looks_like_names(gdf["LAU1"]):
+        print("  name column: LAU1 (looks like names)")
+        return "LAU1"
+    if "LAU1" in gdf.columns:
+        print("  LAU1 looks like codes, falling back to DISTRICT")
+    if "DISTRICT" in gdf.columns and _looks_like_names(gdf["DISTRICT"]):
+        print("  name column: DISTRICT (looks like names)")
+        return "DISTRICT"
+    raise RuntimeError(
+        f"Neither LAU1 nor DISTRICT looks like names. Columns: {list(gdf.columns)}"
+    )
 
 
 def normalise(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    name_field = next((f for f in NAME_FIELD_CANDIDATES if f in gdf.columns), None)
-    if name_field is None:
-        raise RuntimeError(
-            f"No commune-name field found. Columns: {list(gdf.columns)}"
-        )
+    name_field = pick_name_column(gdf)
     geom = gdf.geometry.apply(
         lambda g: g if g is None or g.geom_type == "MultiPolygon" else MultiPolygon([g])
     )
@@ -126,10 +153,23 @@ def main() -> int:
         print(f"ERROR fetching commune boundaries: {exc}", file=sys.stderr)
         return 1
 
+    print(f"\nLoaded {len(gdf)} rows from layer '{LAYER}'.")
+    print(f"  columns: {list(gdf.columns)}")
+    display = gdf.head(5).copy()
+    geom_col = gdf.geometry.name
+    if geom_col in display.columns:
+        display[geom_col] = display[geom_col].apply(
+            lambda g: f"{g.geom_type}(...)" if g is not None else None
+        )
+    print("First 5 rows:")
+    print(display.to_string())
+    print()
+
     norm = normalise(gdf)
     n = load_to_postgis(norm)
     remember_url(CACHE_KEY, url)
     print(f"Loaded {n} rows into {TABLE} (CRS {PROJECTED_CRS}).")
+    print(f"Total communes: {n} (expected 102).")
     return 0
 
 
