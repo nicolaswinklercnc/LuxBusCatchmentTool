@@ -1,17 +1,25 @@
-"""Download Eurostat GEOSTAT 2021 1km² population grid (LU subset) and load to PostGIS.
+"""Download Eurostat Census-GRID 2021 V2.2 1km² population grid for Luxembourg.
 
 URL discovery has three levels:
   1. Try a list of known download URLs with HEAD requests.
-  2. If all fail, scrape the Eurostat GISCO landing page for .zip links
-     containing 'geostat', '1k', or '1km'.
+  2. If all fail, scrape the Eurostat GISCO landing page for .zip links.
   3. If scraping also fails, fall back to a manually-placed file at
-     ingest/data/GEOSTAT_manual.zip and tell the user how to provide one.
+     ingest/data/GEOSTAT_manual.zip.
 
 The successful URL is cached at ingest/data/discovered_urls.json so subsequent
 runs skip discovery (unless INGEST_FORCE_REFRESH=1).
 
+Schema (Census-GRID 2021 V2.2):
+- The bundle ships a single GeoPackage covering all of Europe (~4.5M cells)
+  in EPSG:3035, layer name `census2021`.
+- There is no CNTR_CODE column — country filtering is done spatially by
+  passing a Luxembourg bounding box (in 3035) to read_file's `bbox` param,
+  which keeps memory bounded.
+- Population columns: T (total), Y_LT15, Y_1564, Y_GE65.
+
 Loads into table `population_grid`:
-    grid_id (text PK), pop_count (integer), geom (Polygon, 3035)
+    grid_id (text PK), pop_count (int), pop_under15 (int),
+    pop_working_age (int), pop_over65 (int), geom (Polygon, 3035)
 """
 from __future__ import annotations
 
@@ -26,7 +34,6 @@ from urllib.parse import urljoin
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import geopandas as gpd
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
@@ -47,6 +54,26 @@ GEOSTAT_PAGE = (
 MANUAL_FILE = Path(__file__).resolve().parent / "data" / "GEOSTAT_manual.zip"
 TABLE = "population_grid"
 CACHE_KEY = "geostat"
+
+GPKG_LAYER = "census2021"
+
+# Luxembourg bounding box in EPSG:3035 — used at read_file time so we never
+# load the full European grid into memory.
+LU_BOUNDS = {
+    "minx": 3_950_000,
+    "miny": 3_050_000,
+    "maxx": 4_050_000,
+    "maxy": 3_200_000,
+}
+LU_BBOX = (LU_BOUNDS["minx"], LU_BOUNDS["miny"], LU_BOUNDS["maxx"], LU_BOUNDS["maxy"])
+
+# source-column → PostGIS-column. Order is preserved when building the GDF.
+POP_COLUMNS = {
+    "T": "pop_count",
+    "Y_LT15": "pop_under15",
+    "Y_1564": "pop_working_age",
+    "Y_GE65": "pop_over65",
+}
 
 
 def discover_via_known_urls() -> Optional[str]:
@@ -146,12 +173,11 @@ def _list_layers(path: Path) -> list[str]:
 
 
 def load_grid(zip_bytes: bytes) -> gpd.GeoDataFrame:
-    """Open the GEOSTAT/Census zip and return a GeoDataFrame of grid cells.
+    """Open the Census-GRID 2021 V2.2 zip and return only LU cells.
 
-    The newer Census-GRID release ships a multi-file/multi-layer bundle. We
-    print everything we find inside before reading so a schema change is
-    immediately visible. Both single-GPKG and split GPKG-or-SHP + sidecar-CSV
-    layouts are handled.
+    Uses read_file's `bbox` parameter (in EPSG:3035) so the GDAL driver pushes
+    the spatial filter down to the GeoPackage rather than loading all 4.5M
+    European cells into memory.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -164,55 +190,54 @@ def load_grid(zip_bytes: bytes) -> gpd.GeoDataFrame:
             print(f"  {p.relative_to(tmp)}")
 
         gpkgs = list(tmp.rglob("*.gpkg"))
-        shps = list(tmp.rglob("*.shp"))
-        csvs = list(tmp.rglob("*.csv"))
-
-        if gpkgs:
-            for g in gpkgs:
-                print(f"GeoPackage layers in {g.name}: {_list_layers(g)}")
-            gdf = gpd.read_file(gpkgs[0])
-        elif shps:
-            print(f"Shapefile layers: {[s.name for s in shps]}")
-            gdf = gpd.read_file(shps[0])
-        else:
+        if not gpkgs:
             files = [p.name for p in all_files]
             raise RuntimeError(
-                f"GEOSTAT zip did not contain a GPKG or SHP. Files present: {files}"
+                f"Census-GRID zip did not contain a GPKG. Files present: {files}"
             )
+        gpkg = gpkgs[0]
+        print(f"GeoPackage layers in {gpkg.name}: {_list_layers(gpkg)}")
 
-        if "TOT_P_2021" not in gdf.columns and csvs:
-            print(f"Sidecar CSVs found: {[c.name for c in csvs]}")
-            df = pd.read_csv(csvs[0])
-            if "GRD_ID" in df.columns and "GRD_ID" in gdf.columns:
-                gdf = gdf.merge(df, on="GRD_ID", how="left")
+        print(
+            f"Reading layer '{GPKG_LAYER}' with bbox={LU_BBOX} (EPSG:3035) ..."
+        )
+        gdf = gpd.read_file(gpkg, layer=GPKG_LAYER, bbox=LU_BBOX)
 
-    print(f"Loaded raw grid: {len(gdf):,} rows.")
+    print(f"Loaded {len(gdf):,} rows for the LU bbox.")
     print(f"Columns: {list(gdf.columns)}")
+    print(f"CRS: {gdf.crs}")
     return gdf
 
 
-def filter_and_project(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    if "CNTR_CODE" not in gdf.columns:
+def select_and_project(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    if "GRD_ID" not in gdf.columns:
+        raise RuntimeError(f"Expected GRD_ID column — got {list(gdf.columns)}")
+    missing = [src for src in POP_COLUMNS if src not in gdf.columns]
+    if missing:
         raise RuntimeError(
-            f"Expected CNTR_CODE column — got {list(gdf.columns)}"
+            f"Missing expected population columns {missing}. "
+            f"Available: {list(gdf.columns)}"
         )
-    lu = gdf[gdf["CNTR_CODE"] == "LU"].copy()
-    if lu.empty:
-        raise RuntimeError("No rows with CNTR_CODE='LU' in GEOSTAT data.")
-    print(f"Filtered to LU: {len(lu):,} rows.")
-    if "TOT_P_2021" not in lu.columns:
-        raise RuntimeError(
-            f"Expected TOT_P_2021 column — got {list(lu.columns)}"
-        )
+
+    out_data: dict = {"grid_id": gdf["GRD_ID"].astype(str)}
+    for src, dst in POP_COLUMNS.items():
+        out_data[dst] = gdf[src].fillna(0).astype(int)
+
     out = gpd.GeoDataFrame(
-        {
-            "grid_id": lu["GRD_ID"].astype(str),
-            "pop_count": lu["TOT_P_2021"].fillna(0).astype(int),
-        },
-        geometry=lu.geometry.values,
-        crs=lu.crs,
+        out_data,
+        geometry=gdf.geometry.values,
+        crs=gdf.crs,
     )
-    return out.to_crs(PROJECTED_CRS).rename_geometry("geom")
+
+    # Census-GRID V2.2 is published in EPSG:3035 — only reproject if not.
+    current_epsg = out.crs.to_epsg() if out.crs else None
+    if current_epsg == 3035:
+        print("CRS already EPSG:3035; skipping reprojection.")
+    else:
+        print(f"Reprojecting from {out.crs} to EPSG:3035.")
+        out = out.to_crs(epsg=3035)
+
+    return out.rename_geometry("geom")
 
 
 def load_to_postgis(gdf: gpd.GeoDataFrame) -> int:
@@ -249,17 +274,22 @@ def main() -> int:
 
     try:
         raw = load_grid(zip_bytes)
-        lu = filter_and_project(raw)
+        lu = select_and_project(raw)
     except Exception as exc:
         print(f"ERROR processing GEOSTAT data: {exc}", file=sys.stderr)
         return 1
 
+    total_pop = int(lu["pop_count"].sum())
+    zero_or_null = int((lu["pop_count"] == 0).sum())
+    print("\nSummary:")
+    print(f"  Luxembourg rows: {len(lu):,}")
+    print(f"  Sum of pop_count: {total_pop:,}")
+    print(f"  Cells with pop_count = 0 or null: {zero_or_null:,}")
+
     n = load_to_postgis(lu)
     if url:
         remember_url(CACHE_KEY, url)
-    total_pop = int(lu["pop_count"].sum())
     print(f"Loaded {n} rows into {TABLE} (CRS {PROJECTED_CRS}).")
-    print(f"Total population (sum TOT_P_2021): {total_pop:,}")
     return 0
 
 
