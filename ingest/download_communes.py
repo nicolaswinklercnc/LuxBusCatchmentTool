@@ -12,7 +12,13 @@ The successful URL is cached at ingest/data/discovered_urls.json so subsequent
 runs skip the API call (unless INGEST_FORCE_REFRESH=1).
 
 Loads into table `communes`:
-    commune_id (serial PK), name (text), geom (MultiPolygon, 3035)
+    commune_id (serial PK), name (text), canton (text), lau2 (text),
+    geom (MultiPolygon, 3035)
+
+Column mapping is hardcoded to the known schema of the 'communes' layer:
+    name   <- COMMUNE
+    canton <- CANTON
+    lau2   <- LAU2
 """
 from __future__ import annotations
 
@@ -23,7 +29,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import geopandas as gpd
-import pandas as pd
 import requests
 from shapely.geometry import MultiPolygon
 
@@ -89,36 +94,16 @@ def fetch_geodataframe(url: str) -> gpd.GeoDataFrame:
         return gpd.read_file(path, layer=LAYER)
 
 
-def _looks_like_names(series: pd.Series) -> bool:
-    """True iff at least 80% of non-null values contain an alphabetic character."""
-    s = series.dropna().astype(str)
-    if s.empty:
-        return False
-    has_letter = s.str.contains(r"[A-Za-zÀ-ÿ]", regex=True, na=False).sum()
-    return has_letter / len(s) >= 0.8
-
-
-def pick_name_column(gdf: gpd.GeoDataFrame) -> str:
-    if "LAU1" in gdf.columns and _looks_like_names(gdf["LAU1"]):
-        print("  name column: LAU1 (looks like names)")
-        return "LAU1"
-    if "LAU1" in gdf.columns:
-        print("  LAU1 looks like codes, falling back to DISTRICT")
-    if "DISTRICT" in gdf.columns and _looks_like_names(gdf["DISTRICT"]):
-        print("  name column: DISTRICT (looks like names)")
-        return "DISTRICT"
-    raise RuntimeError(
-        f"Neither LAU1 nor DISTRICT looks like names. Columns: {list(gdf.columns)}"
-    )
-
-
 def normalise(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    name_field = pick_name_column(gdf)
     geom = gdf.geometry.apply(
         lambda g: g if g is None or g.geom_type == "MultiPolygon" else MultiPolygon([g])
     )
     out = gpd.GeoDataFrame(
-        {"name": gdf[name_field].astype(str)},
+        {
+            "name": gdf["COMMUNE"].astype(str),
+            "canton": gdf["CANTON"].astype(str),
+            "lau2": gdf["LAU2"].astype(str),
+        },
         geometry=geom,
         crs=gdf.crs,
     )
@@ -168,8 +153,7 @@ def main() -> int:
     norm = normalise(gdf)
     n = load_to_postgis(norm)
     remember_url(CACHE_KEY, url)
-    print(f"Loaded {n} rows into {TABLE} (CRS {PROJECTED_CRS}).")
-    print(f"Total communes: {n} (expected 102).")
+    print(f"Loaded {n} communes into {TABLE} (CRS {PROJECTED_CRS}).")
     return 0
 
 
