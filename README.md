@@ -35,6 +35,28 @@ curl http://localhost:8000/health   # -> {"status":"ok","crs":"EPSG:3035"}
 
 Open `frontend/index.html` in a browser (or visit the GitHub Pages URL once deployed) to see the map.
 
+## Deployment
+
+| Component | Target | How |
+|---|---|---|
+| Frontend | GitHub Pages — <https://nicolaswinklercnc.github.io/LuxBusCatchmentTool> | Automatic via `.github/workflows/deploy.yml` on push to `main` |
+| Backend  | Fly.io app `lux-bus-catchment-api` (region `cdg`, Paris) | Manual: `flyctl deploy` from terminal |
+| Database | Fly.io managed Postgres + PostGIS extension | See `fly-postgres-notes.md` |
+
+### Backend secrets
+
+Set the connection string (and any other secret) on Fly:
+
+```bash
+flyctl secrets set DATABASE_URL="postgresql://user:pass@host:5432/db"
+```
+
+Never commit credentials. `.env` is gitignored; `.env.example` only carries placeholders.
+
+### Keep-warm
+
+`fly.toml` is configured with `auto_stop_machines = "off"` and `min_machines_running = 1` so the API stays warm. As an extra safeguard, an external cron at [cron-job.org](https://cron-job.org) pings `https://lux-bus-catchment-api.fly.dev/ping` every 5 minutes.
+
 ## Milestones
 
 - **M0 — scaffold** ✅ repo, compose stack, frontend placeholder, Pages CI
