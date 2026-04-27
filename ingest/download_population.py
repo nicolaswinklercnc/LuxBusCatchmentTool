@@ -34,6 +34,7 @@ from db import PROJECTED_CRS, get_engine, get_psycopg2_conn  # noqa: E402
 from url_cache import get_cached_url, head_ok, remember_url  # noqa: E402
 
 KNOWN_URLS = [
+    "https://gisco-services.ec.europa.eu/census/2021/Eurostat_Census-GRID_2021_V2.2.zip",
     "https://ec.europa.eu/eurostat/cache/GISCO/geodatafiles/GEOSTAT_grid_POP_1K_2021_V2.zip",
     "https://gisco-services.ec.europa.eu/pub/census21/grid/GRD_1km_pop_2021_EU.zip",
     "https://gisco-services.ec.europa.eu/pub/census21/grid/GEOSTAT_grid_POP_1K_2021.zip",
@@ -130,33 +131,63 @@ def download_zip(url: str) -> bytes:
     return resp.content
 
 
-def load_grid(zip_bytes: bytes) -> gpd.GeoDataFrame:
-    """Open the GEOSTAT zip and return a GeoDataFrame of grid cells.
+def _list_layers(path: Path) -> list[str]:
+    """List GPKG/Geopackage layer names, falling back across drivers."""
+    try:
+        from pyogrio import list_layers  # type: ignore
+        return [row[0] for row in list_layers(str(path))]
+    except Exception:
+        pass
+    try:
+        import fiona  # type: ignore
+        return list(fiona.listlayers(str(path)))
+    except Exception as exc:
+        return [f"(could not list layers: {exc})"]
 
-    The 2021 release usually ships a single GeoPackage with both geometry and
-    TOT_P_2021. Some intermediate releases split them across a GPKG/SHP and a
-    sidecar CSV keyed on GRD_ID — both layouts are handled below.
+
+def load_grid(zip_bytes: bytes) -> gpd.GeoDataFrame:
+    """Open the GEOSTAT/Census zip and return a GeoDataFrame of grid cells.
+
+    The newer Census-GRID release ships a multi-file/multi-layer bundle. We
+    print everything we find inside before reading so a schema change is
+    immediately visible. Both single-GPKG and split GPKG-or-SHP + sidecar-CSV
+    layouts are handled.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             zf.extractall(tmp)
+
+        all_files = sorted(p for p in tmp.rglob("*") if p.is_file())
+        print(f"Zip contents ({len(all_files)} files):")
+        for p in all_files:
+            print(f"  {p.relative_to(tmp)}")
+
         gpkgs = list(tmp.rglob("*.gpkg"))
         shps = list(tmp.rglob("*.shp"))
         csvs = list(tmp.rglob("*.csv"))
+
         if gpkgs:
+            for g in gpkgs:
+                print(f"GeoPackage layers in {g.name}: {_list_layers(g)}")
             gdf = gpd.read_file(gpkgs[0])
         elif shps:
+            print(f"Shapefile layers: {[s.name for s in shps]}")
             gdf = gpd.read_file(shps[0])
         else:
-            files = [p.name for p in tmp.rglob("*") if p.is_file()]
+            files = [p.name for p in all_files]
             raise RuntimeError(
                 f"GEOSTAT zip did not contain a GPKG or SHP. Files present: {files}"
             )
+
         if "TOT_P_2021" not in gdf.columns and csvs:
+            print(f"Sidecar CSVs found: {[c.name for c in csvs]}")
             df = pd.read_csv(csvs[0])
             if "GRD_ID" in df.columns and "GRD_ID" in gdf.columns:
                 gdf = gdf.merge(df, on="GRD_ID", how="left")
+
+    print(f"Loaded raw grid: {len(gdf):,} rows.")
+    print(f"Columns: {list(gdf.columns)}")
     return gdf
 
 
@@ -168,6 +199,7 @@ def filter_and_project(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     lu = gdf[gdf["CNTR_CODE"] == "LU"].copy()
     if lu.empty:
         raise RuntimeError("No rows with CNTR_CODE='LU' in GEOSTAT data.")
+    print(f"Filtered to LU: {len(lu):,} rows.")
     if "TOT_P_2021" not in lu.columns:
         raise RuntimeError(
             f"Expected TOT_P_2021 column — got {list(lu.columns)}"
