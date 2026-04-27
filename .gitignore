@@ -23,3 +23,5 @@ node_modules/
 
 # Raw / processed geodata (don't commit large datasets)
 data/
+ingest/data/*.gpkg
+ingest/data/*.zip

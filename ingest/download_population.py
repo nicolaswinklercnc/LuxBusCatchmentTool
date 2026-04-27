@@ -24,8 +24,8 @@ Loads into table `population_grid`:
 from __future__ import annotations
 
 import io
+import shutil
 import sys
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -51,7 +51,9 @@ KNOWN_URLS = [
 GEOSTAT_PAGE = (
     "https://ec.europa.eu/eurostat/web/gisco/geodata/population-distribution/population-grids"
 )
-MANUAL_FILE = Path(__file__).resolve().parent / "data" / "GEOSTAT_manual.zip"
+DATA_DIR = Path(__file__).resolve().parent / "data"
+MANUAL_FILE = DATA_DIR / "GEOSTAT_manual.zip"
+GPKG_CACHE = DATA_DIR / "ESTAT_Census_2021_V2.gpkg"
 TABLE = "population_grid"
 CACHE_KEY = "geostat"
 
@@ -172,37 +174,35 @@ def _list_layers(path: Path) -> list[str]:
         return [f"(could not list layers: {exc})"]
 
 
-def load_grid(zip_bytes: bytes) -> gpd.GeoDataFrame:
-    """Open the Census-GRID 2021 V2.2 zip and return only LU cells.
+def extract_gpkg_to_cache(zip_bytes: bytes) -> Path:
+    """Stream the Census-GRID GeoPackage out of the zip into the persistent cache.
 
-    Uses read_file's `bbox` parameter (in EPSG:3035) so the GDAL driver pushes
-    the spatial filter down to the GeoPackage rather than loading all 4.5M
-    European cells into memory.
+    The pan-European GPKG is large (~500 MB), so we keep it on disk after the
+    first download and skip the zip entirely on subsequent runs.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            zf.extractall(tmp)
-
-        all_files = sorted(p for p in tmp.rglob("*") if p.is_file())
-        print(f"Zip contents ({len(all_files)} files):")
-        for p in all_files:
-            print(f"  {p.relative_to(tmp)}")
-
-        gpkgs = list(tmp.rglob("*.gpkg"))
-        if not gpkgs:
-            files = [p.name for p in all_files]
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        members = zf.namelist()
+        print(f"Zip contents ({len(members)} files):")
+        for m in members:
+            print(f"  {m}")
+        gpkg_members = [m for m in members if m.lower().endswith(".gpkg")]
+        if not gpkg_members:
             raise RuntimeError(
-                f"Census-GRID zip did not contain a GPKG. Files present: {files}"
+                f"Census-GRID zip did not contain a GPKG. Files: {members}"
             )
-        gpkg = gpkgs[0]
-        print(f"GeoPackage layers in {gpkg.name}: {_list_layers(gpkg)}")
+        target = gpkg_members[0]
+        print(f"Extracting {target} -> {GPKG_CACHE}")
+        with zf.open(target) as src, open(GPKG_CACHE, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+    return GPKG_CACHE
 
-        print(
-            f"Reading layer '{GPKG_LAYER}' with bbox={LU_BBOX} (EPSG:3035) ..."
-        )
-        gdf = gpd.read_file(gpkg, layer=GPKG_LAYER, bbox=LU_BBOX)
 
+def read_lu_grid(gpkg: Path) -> gpd.GeoDataFrame:
+    """Read only the LU bbox window from the cached GeoPackage."""
+    print(f"GeoPackage layers in {gpkg.name}: {_list_layers(gpkg)}")
+    print(f"Reading layer '{GPKG_LAYER}' with bbox={LU_BBOX} (EPSG:3035) ...")
+    gdf = gpd.read_file(gpkg, layer=GPKG_LAYER, bbox=LU_BBOX)
     print(f"Loaded {len(gdf):,} rows for the LU bbox.")
     print(f"Columns: {list(gdf.columns)}")
     print(f"CRS: {gdf.crs}")
@@ -278,30 +278,46 @@ def load_to_postgis(gdf: gpd.GeoDataFrame) -> int:
 
 
 def main() -> int:
-    try:
-        url, zip_bytes = resolve_geostat_source()
-    except Exception as exc:
-        print(f"ERROR resolving GEOSTAT source: {exc}", file=sys.stderr)
-        return 1
+    download_url: Optional[str] = None
 
-    try:
-        if zip_bytes is None:
-            zip_bytes = download_zip(url)
-    except requests.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code == 404:
-            print(
-                f"ERROR 404 at {url} (HEAD passed but GET failed) — check {GEOSTAT_PAGE}.",
-                file=sys.stderr,
-            )
-        else:
+    if GPKG_CACHE.exists():
+        size_mb = GPKG_CACHE.stat().st_size / 1024 / 1024
+        print(f"Using cached GeoPackage: {GPKG_CACHE}")
+        print(f"Cached GeoPackage: {size_mb:.0f} MB")
+    else:
+        print("Downloading GEOSTAT zip (one-time, ~500MB) ...")
+        try:
+            url, zip_bytes = resolve_geostat_source()
+        except Exception as exc:
+            print(f"ERROR resolving GEOSTAT source: {exc}", file=sys.stderr)
+            return 1
+        try:
+            if zip_bytes is None:
+                zip_bytes = download_zip(url)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                print(
+                    f"ERROR 404 at {url} (HEAD passed but GET failed) — check {GEOSTAT_PAGE}.",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"ERROR downloading GEOSTAT: {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:
             print(f"ERROR downloading GEOSTAT: {exc}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"ERROR downloading GEOSTAT: {exc}", file=sys.stderr)
-        return 1
+            return 1
+
+        try:
+            extract_gpkg_to_cache(zip_bytes)
+        except Exception as exc:
+            print(f"ERROR extracting GeoPackage: {exc}", file=sys.stderr)
+            return 1
+        size_mb = GPKG_CACHE.stat().st_size / 1024 / 1024
+        print(f"Cached GeoPackage: {size_mb:.0f} MB")
+        download_url = url
 
     try:
-        raw = load_grid(zip_bytes)
+        raw = read_lu_grid(GPKG_CACHE)
         lu = select_and_project(raw)
     except Exception as exc:
         print(f"ERROR processing GEOSTAT data: {exc}", file=sys.stderr)
@@ -325,8 +341,8 @@ def main() -> int:
     print(f"  Cells with pop_count = 0 or null: {zero_or_null:,}")
 
     n = load_to_postgis(lu)
-    if url:
-        remember_url(CACHE_KEY, url)
+    if download_url:
+        remember_url(CACHE_KEY, download_url)
     print(f"Loaded {n} rows into {TABLE} (CRS {PROJECTED_CRS}).")
     return 0
 
