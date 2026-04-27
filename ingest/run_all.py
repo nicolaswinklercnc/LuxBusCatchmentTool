@@ -5,7 +5,9 @@ stop the others. Final summary prints row counts queried back from the DB.
 """
 from __future__ import annotations
 
+import argparse
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -100,6 +102,19 @@ def print_summary() -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Run all Luxembourg data ingest scripts."
+    )
+    parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="Ignore cached download URLs and rediscover everything fresh.",
+    )
+    args = parser.parse_args()
+    if args.force_refresh:
+        os.environ["INGEST_FORCE_REFRESH"] = "1"
+        print("--force-refresh: discovered URL cache will be ignored.")
+
     check_postgis()
     for _table, module_name in SCRIPTS:
         run_one(module_name)
