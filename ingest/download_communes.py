@@ -73,7 +73,7 @@ def resolve_communes_url() -> str:
         print(f"Using cached communes URL: {cached}")
         return cached
     url = discover_communes_url()
-    print(f"Discovered communes URL: {url}")
+    print(f"communes URL: {url}")
     return url
 
 
@@ -138,22 +138,10 @@ def main() -> int:
         print(f"ERROR fetching commune boundaries: {exc}", file=sys.stderr)
         return 1
 
-    print(f"\nLoaded {len(gdf)} rows from layer '{LAYER}'.")
-    print(f"  columns: {list(gdf.columns)}")
-    display = gdf.head(5).copy()
-    geom_col = gdf.geometry.name
-    if geom_col in display.columns:
-        display[geom_col] = display[geom_col].apply(
-            lambda g: f"{g.geom_type}(...)" if g is not None else None
-        )
-    print("First 5 rows:")
-    print(display.to_string())
-    print()
-
     norm = normalise(gdf)
     n = load_to_postgis(norm)
     remember_url(CACHE_KEY, url)
-    print(f"Loaded {n} communes into {TABLE} (CRS {PROJECTED_CRS}).")
+    print(f"{TABLE}: {n:,} loaded")
     return 0
 
 

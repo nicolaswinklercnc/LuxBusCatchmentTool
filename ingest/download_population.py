@@ -37,7 +37,7 @@ import geopandas as gpd
 import requests
 from bs4 import BeautifulSoup
 
-from db import PROJECTED_CRS, get_engine, get_psycopg2_conn  # noqa: E402
+from db import get_engine, get_psycopg2_conn  # noqa: E402
 from url_cache import get_cached_url, head_ok, remember_url  # noqa: E402
 
 KNOWN_URLS = [
@@ -154,20 +154,6 @@ def download_zip(url: str) -> bytes:
     return resp.content
 
 
-def _list_layers(path: Path) -> list[str]:
-    """List GPKG/Geopackage layer names, falling back across drivers."""
-    try:
-        from pyogrio import list_layers  # type: ignore
-        return [row[0] for row in list_layers(str(path))]
-    except Exception:
-        pass
-    try:
-        import fiona  # type: ignore
-        return list(fiona.listlayers(str(path)))
-    except Exception as exc:
-        return [f"(could not list layers: {exc})"]
-
-
 def extract_gpkg_to_cache(zip_bytes: bytes) -> Path:
     """Stream the Census-GRID GeoPackage out of the zip into the persistent cache.
 
@@ -177,9 +163,6 @@ def extract_gpkg_to_cache(zip_bytes: bytes) -> Path:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         members = zf.namelist()
-        print(f"Zip contents ({len(members)} files):")
-        for m in members:
-            print(f"  {m}")
         gpkg_members = [m for m in members if m.lower().endswith(".gpkg")]
         if not gpkg_members:
             raise RuntimeError(
@@ -196,12 +179,8 @@ def read_lu_grid(
     gpkg: Path, bbox: tuple[float, float, float, float]
 ) -> gpd.GeoDataFrame:
     """Read only the given bbox window from the cached GeoPackage."""
-    print(f"GeoPackage layers in {gpkg.name}: {_list_layers(gpkg)}")
-    print(f"Reading layer '{GPKG_LAYER}' with bbox={bbox} (EPSG:3035) ...")
     gdf = gpd.read_file(gpkg, layer=GPKG_LAYER, bbox=bbox)
     print(f"Loaded {len(gdf):,} rows for the LU bbox.")
-    print(f"Columns: {list(gdf.columns)}")
-    print(f"CRS: {gdf.crs}")
     return gdf
 
 
@@ -255,9 +234,7 @@ def select_and_project(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
     # Census-GRID V2.2 is published in EPSG:3035 — only reproject if not.
     current_epsg = out.crs.to_epsg() if out.crs else None
-    if current_epsg == 3035:
-        print("CRS already EPSG:3035; skipping reprojection.")
-    else:
+    if current_epsg != 3035:
         print(f"Reprojecting from {out.crs} to EPSG:3035.")
         out = out.to_crs(epsg=3035)
 
@@ -277,9 +254,7 @@ def main() -> int:
     download_url: Optional[str] = None
 
     if GPKG_CACHE.exists():
-        size_mb = GPKG_CACHE.stat().st_size / 1024 / 1024
         print(f"Using cached GeoPackage: {GPKG_CACHE}")
-        print(f"Cached GeoPackage: {size_mb:.0f} MB")
     else:
         print("Downloading GEOSTAT zip (one-time, ~500MB) ...")
         try:
@@ -354,16 +329,10 @@ def main() -> int:
         )
 
     total_pop = int(lu["pop_count"].sum())
-    zero_or_null = int((lu["pop_count"] == 0).sum())
-    print("\nSummary:")
-    print(f"  Luxembourg rows: {len(lu):,}")
-    print(f"  Sum of pop_count: {total_pop:,}")
-    print(f"  Cells with pop_count = 0 or null: {zero_or_null:,}")
-
     n = load_to_postgis(lu)
     if download_url:
         remember_url(CACHE_KEY, download_url)
-    print(f"Loaded {n} rows into {TABLE} (CRS {PROJECTED_CRS}).")
+    print(f"{TABLE}: {n:,} cells loaded ({total_pop:,} residents)")
     return 0
 
 

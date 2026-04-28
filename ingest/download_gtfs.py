@@ -63,7 +63,7 @@ def resolve_gtfs_url() -> str:
         print(f"Using cached GTFS URL: {cached}")
         return cached
     url = discover_gtfs_url()
-    print(f"Discovered GTFS URL: {url}")
+    print(f"GTFS URL: {url}")
     return url
 
 
@@ -119,7 +119,7 @@ def main() -> int:
     gdf = to_geodataframe(stops)
     n = load_to_postgis(gdf)
     remember_url(CACHE_KEY, zip_url)
-    print(f"Loaded {n} rows into {TABLE} (CRS {PROJECTED_CRS}).")
+    print(f"{TABLE}: {n:,} stops loaded")
     return 0
 
 

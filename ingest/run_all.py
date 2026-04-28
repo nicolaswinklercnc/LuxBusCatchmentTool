@@ -9,6 +9,8 @@ import argparse
 import importlib
 import os
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -121,6 +123,8 @@ def main() -> int:
         os.environ["INGEST_FORCE_REFRESH"] = "1"
         print("--force-refresh: discovered URL cache will be ignored.")
 
+    started = time.monotonic()
+    print(f"Run started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     check_postgis()
     for _table, module_name in SCRIPTS:
         if module_name == "download_population" and not communes_ready():
@@ -141,6 +145,8 @@ def main() -> int:
     except Exception as exc:
         print(f"WARNING: commune backfill failed: {exc}", file=sys.stderr)
     print_summary()
+    elapsed = int(time.monotonic() - started)
+    print(f"Run completed in {elapsed}s")
     return 0
 
 
