@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from db import get_psycopg2_conn  # noqa: E402
 
-CATCHMENT_SQL_FILE = Path(__file__).resolve().parent / "sql" / "catchment.sql"
+CATCHMENT_SQL_FILE = (
+    Path(__file__).resolve().parent.parent / "api" / "sql" / "catchment.sql"
+)
 N_STOPS = 20
 RADIUS_M = 400
 P95_BUDGET_MS = 200

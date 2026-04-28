@@ -40,9 +40,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:5500",
 ]
 
-CATCHMENT_SQL_FILE = (
-    Path(__file__).resolve().parent.parent / "ingest" / "sql" / "catchment.sql"
-)
+CATCHMENT_SQL_FILE = Path(__file__).parent / "sql" / "catchment.sql"
 CATCHMENT_SQL = CATCHMENT_SQL_FILE.read_text(encoding="utf-8")
 # psycopg2-style %(name)s placeholders → SQLAlchemy :name binds.
 CATCHMENT_SQL_SA = (
