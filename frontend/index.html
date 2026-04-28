@@ -215,12 +215,34 @@
           acc[vt] = (acc[vt] || 0) + 1;
           return acc;
         }, {});
-        console.log('Loaded ' + stopsFC.features.length + ' stops', counts);
+        console.log('Loaded ' + stopsFC.features.length + ' stops; counts:',
+                    JSON.stringify(counts));
         if (stopsFC.features.length) {
-          console.log('first stop properties:', stopsFC.features[0].properties);
+          console.log('first stop properties:',
+                      JSON.stringify(stopsFC.features[0].properties));
+          console.log('first stop geometry:',
+                      JSON.stringify(stopsFC.features[0].geometry));
         }
-        console.log('current stops-circle filter:', map.getFilter('stops-circle'));
+        console.log('stops-circle filter:',
+                    JSON.stringify(map.getFilter('stops-circle')));
+        console.log('stops-circle paint circle-color:',
+                    JSON.stringify(map.getPaintProperty('stops-circle','circle-color')));
         loadingEl.remove();
+
+        // Wait one render frame then verify what actually painted.
+        setTimeout(() => {
+          const rendered = map.queryRenderedFeatures({ layers: ['stops-circle'] });
+          const src = map.querySourceFeatures('stops');
+          console.log('DIAG queryRenderedFeatures(stops-circle)=' + rendered.length +
+                      ' querySourceFeatures(stops)=' + src.length);
+          if (rendered.length === 0 && src.length > 0) {
+            console.warn('DIAG dots in source but none rendered — filter or paint expression rejecting them');
+            console.log('DIAG sample source feature:',
+                        JSON.stringify(src[0] && { props: src[0].properties, geom: src[0].geometry && src[0].geometry.type }));
+          }
+          const layers = map.getStyle().layers.map(l => l.id);
+          console.log('DIAG layer order:', JSON.stringify(layers));
+        }, 1500);
       } catch (err) {
         console.error('stops fetch failed', err);
         showLoadingError('Could not load stops. Check your connection.');
