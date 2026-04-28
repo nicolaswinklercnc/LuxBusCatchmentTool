@@ -77,6 +77,11 @@
   <script>
     const API = 'https://lux-bus-catchment-api.fly.dev';
     const RADIUS_M = 400;
+    // Bumped when the response shape changes — appended to /stops and
+    // /communes URLs to dodge browsers' cached older payloads. Browsers obey
+    // /stops' Cache-Control: max-age=3600, which cached the pre-vehicle_type
+    // response. Increment this whenever the API response shape changes.
+    const DATA_VERSION = 2;
 
     // Single source of truth for vehicle_type → colour. Used by stop dots,
     // the catchment circle, the filter swatches, and the popup.
@@ -206,7 +211,7 @@
       });
 
       try {
-        const stopsResp = await fetch(API + '/stops');
+        const stopsResp = await fetch(API + '/stops?v=' + DATA_VERSION);
         if (!stopsResp.ok) throw new Error('stops ' + stopsResp.status);
         const stopsFC = await stopsResp.json();
         map.getSource('stops').setData(stopsFC);
@@ -252,7 +257,7 @@
       // Small delay so /communes doesn't race /stops on the same connection.
       setTimeout(async () => {
         try {
-          const cResp = await fetch(API + '/communes');
+          const cResp = await fetch(API + '/communes?v=' + DATA_VERSION);
           if (!cResp.ok) throw new Error('communes ' + cResp.status);
           map.getSource('communes').setData(await cResp.json());
         } catch (err) {
