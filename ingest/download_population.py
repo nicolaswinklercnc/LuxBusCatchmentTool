@@ -13,8 +13,8 @@ Schema (Census-GRID 2021 V2.2):
 - The bundle ships a single GeoPackage covering all of Europe (~4.5M cells)
   in EPSG:3035, layer name `census2021`.
 - There is no CNTR_CODE column — country filtering is done spatially by
-  passing a Luxembourg bounding box (in 3035) to read_file's `bbox` param,
-  which keeps memory bounded.
+  deriving a bbox from the loaded `communes` boundary (in 3035) and passing
+  it to read_file's `bbox` param, which keeps memory bounded.
 - Population columns: T (total), Y_LT15, Y_1564, Y_GE65.
 
 Loads into table `population_grid`:
@@ -59,15 +59,9 @@ CACHE_KEY = "geostat"
 
 GPKG_LAYER = "census2021"
 
-# Luxembourg bounding box in EPSG:3035 — used at read_file time so we never
-# load the full European grid into memory.
-LU_BOUNDS = {
-    "minx": 3_950_000,
-    "miny": 3_050_000,
-    "maxx": 4_050_000,
-    "maxy": 3_200_000,
-}
-LU_BBOX = (LU_BOUNDS["minx"], LU_BOUNDS["miny"], LU_BOUNDS["maxx"], LU_BOUNDS["maxy"])
+# Buffer (metres, EPSG:3035) added around the communes-derived bbox when
+# reading the European grid, to absorb edge cells that straddle the border.
+READ_BBOX_BUFFER_M = 5_000
 
 # source-column → PostGIS-column. Order is preserved when building the GDF.
 POP_COLUMNS = {
@@ -198,11 +192,13 @@ def extract_gpkg_to_cache(zip_bytes: bytes) -> Path:
     return GPKG_CACHE
 
 
-def read_lu_grid(gpkg: Path) -> gpd.GeoDataFrame:
-    """Read only the LU bbox window from the cached GeoPackage."""
+def read_lu_grid(
+    gpkg: Path, bbox: tuple[float, float, float, float]
+) -> gpd.GeoDataFrame:
+    """Read only the given bbox window from the cached GeoPackage."""
     print(f"GeoPackage layers in {gpkg.name}: {_list_layers(gpkg)}")
-    print(f"Reading layer '{GPKG_LAYER}' with bbox={LU_BBOX} (EPSG:3035) ...")
-    gdf = gpd.read_file(gpkg, layer=GPKG_LAYER, bbox=LU_BBOX)
+    print(f"Reading layer '{GPKG_LAYER}' with bbox={bbox} (EPSG:3035) ...")
+    gdf = gpd.read_file(gpkg, layer=GPKG_LAYER, bbox=bbox)
     print(f"Loaded {len(gdf):,} rows for the LU bbox.")
     print(f"Columns: {list(gdf.columns)}")
     print(f"CRS: {gdf.crs}")
@@ -317,16 +313,28 @@ def main() -> int:
         download_url = url
 
     try:
-        raw = read_lu_grid(GPKG_CACHE)
-        lu = select_and_project(raw)
-    except Exception as exc:
-        print(f"ERROR processing GEOSTAT data: {exc}", file=sys.stderr)
-        return 1
-
-    try:
         boundary = load_lu_boundary()
     except Exception as exc:
         print(f"ERROR loading LU boundary: {exc}", file=sys.stderr)
+        return 1
+
+    bx = boundary.total_bounds
+    read_bbox = (
+        bx[0] - READ_BBOX_BUFFER_M,
+        bx[1] - READ_BBOX_BUFFER_M,
+        bx[2] + READ_BBOX_BUFFER_M,
+        bx[3] + READ_BBOX_BUFFER_M,
+    )
+    print(
+        f"Derived read bbox from communes (buffer {READ_BBOX_BUFFER_M} m): "
+        f"{read_bbox}"
+    )
+
+    try:
+        raw = read_lu_grid(GPKG_CACHE, read_bbox)
+        lu = select_and_project(raw)
+    except Exception as exc:
+        print(f"ERROR processing GEOSTAT data: {exc}", file=sys.stderr)
         return 1
 
     print("LU boundary CRS:", boundary.crs)
@@ -341,8 +349,8 @@ def main() -> int:
     print(f"\nClipped to LU boundary: {before:,} -> {len(lu):,} rows.")
     if len(lu) == 0:
         raise RuntimeError(
-            "Clipping produced 0 rows — likely a CRS mismatch. "
-            "Check the printed CRS and bbox values above."
+            "Clipping produced 0 rows — check the printed CRS and bbox "
+            "values above."
         )
 
     total_pop = int(lu["pop_count"].sum())
