@@ -329,9 +329,21 @@ def main() -> int:
         print(f"ERROR loading LU boundary: {exc}", file=sys.stderr)
         return 1
 
+    print("LU boundary CRS:", boundary.crs)
+    print("Population grid CRS:", lu.crs)
+    if boundary.crs != lu.crs:
+        boundary = boundary.to_crs(lu.crs)
+    print("LU boundary bbox:", boundary.total_bounds)
+    print("Population grid bbox:", lu.total_bounds)
+
     before = len(lu)
     lu = lu[lu.intersects(boundary.geometry.iloc[0])].copy()
     print(f"\nClipped to LU boundary: {before:,} -> {len(lu):,} rows.")
+    if len(lu) == 0:
+        raise RuntimeError(
+            "Clipping produced 0 rows — likely a CRS mismatch. "
+            "Check the printed CRS and bbox values above."
+        )
 
     total_pop = int(lu["pop_count"].sum())
     zero_or_null = int((lu["pop_count"] == 0).sum())
