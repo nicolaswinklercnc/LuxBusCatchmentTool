@@ -2,28 +2,249 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Luxembourg Bus Catchment Tool</title>
+  <title>Luxembourg Bus Catchment</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link
     rel="stylesheet"
-    href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css"
+    href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
   />
   <style>
-    html, body { margin: 0; padding: 0; height: 100%; }
-    #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
+    html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    #map { position: absolute; inset: 0; }
+
+    #panel {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+      padding: 12px 14px;
+      border-radius: 6px;
+      max-width: 260px;
+      z-index: 1;
+      pointer-events: auto;
+    }
+    #panel .title { font-weight: 600; font-size: 14px; color: #1c1c1c; }
+    #panel .subtitle { margin-top: 4px; font-size: 12px; color: #555; }
+
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 255, 255, 0.92);
+      padding: 10px 16px;
+      border-radius: 6px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+      font-size: 13px;
+      color: #333;
+      z-index: 2;
+    }
+    #loading.error { color: #b00020; }
+
+    .catchment-popup .maplibregl-popup-content {
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .catchment-popup .stop-name { font-weight: 600; font-size: 13px; }
+    .catchment-popup .row { color: #444; }
+    .catchment-popup .residents { font-weight: 600; color: #1c1c1c; }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+  <div id="panel">
+    <div class="title">Luxembourg Bus Catchment</div>
+    <div class="subtitle">Click any stop to see catchment area</div>
+  </div>
+  <div id="loading">Loading stops…</div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script>
+    const API = 'https://lux-bus-catchment-api.fly.dev';
+    const RADIUS_M = 400;
+
     const map = new maplibregl.Map({
       container: 'map',
-      style: 'https://demotiles.maplibre.org/style.json',
+      style: 'https://tiles.openfreemap.org/styles/liberty',
       center: [6.1319, 49.6116],
-      zoom: 10
+      zoom: 10,
+      minZoom: 8,
+      maxBounds: [[5.7, 49.4], [6.6, 50.2]]
     });
-    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+
+    const loadingEl = document.getElementById('loading');
+    function showLoadingError(msg) {
+      loadingEl.textContent = msg;
+      loadingEl.classList.add('error');
+    }
+
+    const emptyFC = { type: 'FeatureCollection', features: [] };
+
+    map.on('load', async () => {
+      // Communes source/layers placeholder; populated after a small delay
+      // so /stops and /communes don't fire simultaneously.
+      map.addSource('communes', { type: 'geojson', data: emptyFC });
+      map.addLayer({
+        id: 'communes-fill',
+        type: 'fill',
+        source: 'communes',
+        paint: { 'fill-color': '#185FA5', 'fill-opacity': 0.04 }
+      });
+      map.addLayer({
+        id: 'communes-line',
+        type: 'line',
+        source: 'communes',
+        paint: { 'line-color': '#185FA5', 'line-width': 0.8, 'line-opacity': 0.4 }
+      });
+
+      // Catchment circle (empty until a stop is clicked).
+      map.addSource('catchment-circle', { type: 'geojson', data: emptyFC });
+      map.addLayer({
+        id: 'catchment-circle-fill',
+        type: 'fill',
+        source: 'catchment-circle',
+        paint: { 'fill-color': '#E84646', 'fill-opacity': 0.15 }
+      });
+      map.addLayer({
+        id: 'catchment-circle-line',
+        type: 'line',
+        source: 'catchment-circle',
+        paint: { 'line-color': '#E84646', 'line-width': 2, 'line-opacity': 0.6 }
+      });
+
+      // Stops on top of everything.
+      map.addSource('stops', { type: 'geojson', data: emptyFC });
+      map.addLayer({
+        id: 'stops-circle',
+        type: 'circle',
+        source: 'stops',
+        paint: {
+          'circle-radius': [
+            'interpolate', ['linear'], ['zoom'],
+            10, 5,
+            14, 8
+          ],
+          'circle-color': '#E84646',
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 1.5,
+          'circle-opacity': 0.85
+        }
+      });
+      map.addLayer({
+        id: 'stops-label',
+        type: 'symbol',
+        source: 'stops',
+        minzoom: 13,
+        layout: {
+          'text-field': ['get', 'stop_name'],
+          'text-size': 11,
+          'text-anchor': 'top',
+          'text-offset': [0, 0.9],
+          'text-allow-overlap': false,
+          'text-optional': true
+        },
+        paint: {
+          'text-color': '#1c1c1c',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1
+        }
+      });
+
+      try {
+        const stopsResp = await fetch(API + '/stops');
+        if (!stopsResp.ok) throw new Error('stops ' + stopsResp.status);
+        const stopsFC = await stopsResp.json();
+        map.getSource('stops').setData(stopsFC);
+        console.log('Loaded ' + stopsFC.features.length + ' stops');
+        loadingEl.remove();
+      } catch (err) {
+        console.error('stops fetch failed', err);
+        showLoadingError('Could not load stops. Check your connection.');
+        return;
+      }
+
+      // Small delay so /communes doesn't race /stops on the same connection.
+      setTimeout(async () => {
+        try {
+          const cResp = await fetch(API + '/communes');
+          if (!cResp.ok) throw new Error('communes ' + cResp.status);
+          map.getSource('communes').setData(await cResp.json());
+        } catch (err) {
+          console.error('communes fetch failed', err);
+        }
+      }, 100);
+    });
+
+    map.on('mouseenter', 'stops-circle', () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', 'stops-circle', () => {
+      map.getCanvas().style.cursor = '';
+    });
+
+    let activePopup = null;
+    function fmt(n) { return Number(n).toLocaleString(); }
+
+    map.on('click', 'stops-circle', async (e) => {
+      const feature = e.features && e.features[0];
+      if (!feature) return;
+      const props = feature.properties || {};
+      const coords = feature.geometry.coordinates.slice();
+
+      if (activePopup) activePopup.remove();
+      map.getSource('catchment-circle').setData(emptyFC);
+
+      activePopup = new maplibregl.Popup({ className: 'catchment-popup', closeButton: true })
+        .setLngLat(coords)
+        .setHTML(
+          '<div class="stop-name">' + escapeHtml(props.stop_name || '') + '</div>' +
+          '<div class="row">Loading…</div>'
+        )
+        .addTo(map);
+
+      try {
+        const url = API + '/catchment?stop_id=' + encodeURIComponent(props.stop_id) +
+                    '&radius=' + RADIUS_M;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('catchment ' + resp.status);
+        const data = await resp.json();
+
+        const html =
+          '<div class="stop-name">' + escapeHtml(data.stop_name || '') + '</div>' +
+          '<div class="row">Commune: ' + escapeHtml(data.commune || '—') + '</div>' +
+          '<div class="row">Radius: ' + data.radius_m + ' m</div>' +
+          '<div class="row">Residents: <span class="residents">' + fmt(data.residents) + '</span></div>';
+        activePopup.setHTML(html);
+
+        if (data.catchment_geojson) {
+          map.getSource('catchment-circle').setData({
+            type: 'Feature',
+            geometry: data.catchment_geojson,
+            properties: {}
+          });
+        }
+      } catch (err) {
+        console.error('catchment fetch failed', err);
+        if (activePopup) {
+          activePopup.setHTML(
+            '<div class="stop-name">' + escapeHtml(props.stop_name || '') + '</div>' +
+            '<div class="row">Could not load catchment data.</div>'
+          );
+        }
+      }
+    });
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
   </script>
 </body>
 </html>
