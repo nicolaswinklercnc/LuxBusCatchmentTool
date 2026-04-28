@@ -75,7 +75,11 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script>
-    const API = 'https://lux-bus-catchment-api.fly.dev';
+    // In production this falls through to the Fly URL. The local dev server
+    // (frontend/serve.py) injects a window.API_URL that points at the Docker
+    // API on http://localhost:8000.
+    const API_URL = (typeof window !== 'undefined' && window.API_URL) ||
+                    'https://lux-bus-catchment-api.fly.dev';
     const RADIUS_M = 400;
     // Bumped when the response shape changes — appended to /stops and
     // /communes URLs to dodge browsers' cached older payloads. Browsers obey
@@ -211,7 +215,7 @@
       });
 
       try {
-        const stopsResp = await fetch(API + '/stops?v=' + DATA_VERSION);
+        const stopsResp = await fetch(API_URL + '/stops?v=' + DATA_VERSION);
         if (!stopsResp.ok) throw new Error('stops ' + stopsResp.status);
         const stopsFC = await stopsResp.json();
         map.getSource('stops').setData(stopsFC);
@@ -257,7 +261,7 @@
       // Small delay so /communes doesn't race /stops on the same connection.
       setTimeout(async () => {
         try {
-          const cResp = await fetch(API + '/communes?v=' + DATA_VERSION);
+          const cResp = await fetch(API_URL + '/communes?v=' + DATA_VERSION);
           if (!cResp.ok) throw new Error('communes ' + cResp.status);
           map.getSource('communes').setData(await cResp.json());
         } catch (err) {
@@ -305,7 +309,7 @@
         .addTo(map);
 
       try {
-        const url = API + '/catchment?stop_id=' + encodeURIComponent(props.stop_id) +
+        const url = API_URL + '/catchment?stop_id=' + encodeURIComponent(props.stop_id) +
                     '&radius=' + RADIUS_M;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error('catchment ' + resp.status);
