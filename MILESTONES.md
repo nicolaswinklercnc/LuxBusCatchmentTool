@@ -21,8 +21,11 @@
 - **Database:** Supabase managed Postgres + PostGIS. Direct connection on port **5432** (not the transaction pooler on 6543 — the pooler rejected the plain `postgres` username).
 - Live `/health` returns `db:connected` with the expected row counts.
 
-## Milestone 4 — Frontend (MapLibre)
-- **Status:** NOT STARTED
+## Milestone 4 — Frontend map on GitHub Pages
+- **Status:** COMPLETE
+- **Date:** 2026-04-28
+- **Live URL:** https://nicolaswinklercnc.github.io/LuxBusCatchmentTool
+- Single-file `frontend/index.html` (no build step). MapLibre 4.7.1 + OpenFreeMap Liberty basemap, locked to Luxembourg via `maxBounds`. Fetches `/stops` and `/communes` from the live API, renders stops as red dots (with labels at zoom ≥ 13) over faint blue commune outlines. Click a stop → popup with name/commune/residents and a translucent red 400 m catchment circle drawn from `/catchment`'s WGS84 polygon. Auto-deploys via `.github/workflows/deploy.yml` on push to `main`.
 
 ## Milestone 5 — Deployment verification + observability
 - **Status:** NOT STARTED
