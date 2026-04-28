@@ -10,7 +10,7 @@ SELECT
   COALESCE(SUM(pg.pop_under15), 0) AS residents_under15,
   COALESCE(SUM(pg.pop_working_age), 0) AS residents_working_age,
   COALESCE(SUM(pg.pop_over65), 0) AS residents_over65,
-  ST_AsGeoJSON(ST_Buffer(bs.geom, %(radius_m)s)) AS catchment_geojson
+  ST_AsGeoJSON(ST_Transform(ST_Buffer(bs.geom, %(radius_m)s), 4326)) AS catchment_geojson
 FROM bus_stops bs
 LEFT JOIN population_grid pg
   ON ST_Intersects(pg.geom, ST_Buffer(bs.geom, %(radius_m)s))
