@@ -114,9 +114,14 @@
       return Object.keys(visible).filter(k => visible[k]);
     }
     function buildFilter() {
-      // ['in', ['get', 'vehicle_type'], ['literal', [...]]] keeps only
-      // features whose vehicle_type is in the active set.
-      return ['in', ['get', 'vehicle_type'], ['literal', activeTypes()]];
+      // Use a match expression rather than `in` — `in` can be ambiguous with
+      // MapLibre's legacy filter form when the first arg looks like a field
+      // name. Match with a label array is unambiguously expression syntax.
+      const types = activeTypes();
+      if (types.length === 0) {
+        return ['==', ['literal', '__none__'], ['literal', 'x']];
+      }
+      return ['match', ['get', 'vehicle_type'], types, true, false];
     }
     function applyFilter() {
       if (!map.getLayer('stops-circle')) return;
@@ -125,7 +130,10 @@
       map.setFilter('stops-label', f);
     }
 
+    map.on('error', (e) => console.error('maplibre error:', e && e.error ? e.error : e));
+
     map.on('load', async () => {
+      console.log('map loaded, adding sources/layers');
       // Communes underneath everything.
       map.addSource('communes', { type: 'geojson', data: emptyFC });
       map.addLayer({
@@ -208,6 +216,10 @@
           return acc;
         }, {});
         console.log('Loaded ' + stopsFC.features.length + ' stops', counts);
+        if (stopsFC.features.length) {
+          console.log('first stop properties:', stopsFC.features[0].properties);
+        }
+        console.log('current stops-circle filter:', map.getFilter('stops-circle'));
         loadingEl.remove();
       } catch (err) {
         console.error('stops fetch failed', err);
