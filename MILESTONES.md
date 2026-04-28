@@ -1,0 +1,28 @@
+# Milestones
+
+## Milestone 1 — Data ingest into PostGIS
+- **Status:** COMPLETE
+- **Date:** 2026-04-28
+- **Last commit:** `e60a544`
+- Bus stops (GTFS), commune boundaries (data.public.lu), and Eurostat Census-GRID 2021 V2.2 1km² population grid are loaded into local PostGIS. Population grid is bbox-clipped from the LU communes boundary, then intersected against it; ~660k residents in ~700–900 cells. All spatial ops in EPSG:3035.
+
+## Milestone 2 — Core catchment query in PostGIS
+- **Status:** COMPLETE
+- **Date:** 2026-04-28
+- **Last commit:** `d46c60e`
+- Canonical SQL at `api/sql/catchment.sql` (moved from `ingest/sql/` in `a5b64cb` so the Dockerfile can ship it with the API). Tested via `ingest/test_catchment.py`, `ingest/explain_query.py`, `ingest/benchmark.py`. p95 = 0.8 ms over 20 random stops at 400 m, well under the 200 ms budget. Query plan uses `bus_stops_pkey` and `population_grid_geom_idx` (no seq scans).
+
+## Milestone 3 — FastAPI backend, live on Fly.io
+- **Status:** COMPLETE
+- **Date:** 2026-04-28
+- **Live URL:** https://lux-bus-catchment-api.fly.dev
+- Endpoints: `/health`, `/ping`, `/stops`, `/communes`, `/catchment`, `/commune/{name}/summary`. CORS scoped to GitHub Pages + localhost dev origins. Pooled SQLAlchemy (pool_size=5). Geometry returned in WGS84 for MapLibre. 11/11 pytest cases pass.
+- **Backend:** Fly.io, region `cdg` (Paris). `fly.toml` healthcheck on `/ping` every 120 s (DB-independent so a transient Postgres issue can't take the machine out of rotation).
+- **Database:** Supabase managed Postgres + PostGIS. Direct connection on port **5432** (not the transaction pooler on 6543 — the pooler rejected the plain `postgres` username).
+- Live `/health` returns `db:connected` with the expected row counts.
+
+## Milestone 4 — Frontend (MapLibre)
+- **Status:** NOT STARTED
+
+## Milestone 5 — Deployment verification + observability
+- **Status:** NOT STARTED
