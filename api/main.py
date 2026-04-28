@@ -135,7 +135,8 @@ def stops() -> Response:
           ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geom_json,
           stop_id,
           stop_name,
-          commune
+          commune,
+          vehicle_type
         FROM bus_stops
         ORDER BY stop_id;
         """
@@ -197,6 +198,7 @@ def catchment(
         stop_id=row["stop_id"],
         stop_name=row["stop_name"],
         commune=row["commune"],
+        vehicle_type=row["vehicle_type"],
         radius_m=int(row["radius_m"]),
         residents=int(row["residents"]),
         residents_under15=int(row["residents_under15"]),
@@ -267,7 +269,8 @@ def commune_summary(name: str) -> CommuneSummaryResponse:
           ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geom_json,
           stop_id,
           stop_name,
-          commune
+          commune,
+          vehicle_type
         FROM bus_stops
         WHERE commune = :name
         ORDER BY stop_id;

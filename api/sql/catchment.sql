@@ -4,6 +4,7 @@ SELECT
   bs.stop_id,
   bs.stop_name,
   bs.commune,
+  bs.vehicle_type,
   %(radius_m)s::integer AS radius_m,
   COUNT(pg.grid_id) AS cells_intersected,
   COALESCE(SUM(pg.pop_count), 0) AS residents,
@@ -15,4 +16,4 @@ FROM bus_stops bs
 LEFT JOIN population_grid pg
   ON ST_Intersects(pg.geom, ST_Buffer(bs.geom, %(radius_m)s))
 WHERE bs.stop_id = %(stop_id)s
-GROUP BY bs.stop_id, bs.stop_name, bs.commune, bs.geom;
+GROUP BY bs.stop_id, bs.stop_name, bs.commune, bs.vehicle_type, bs.geom;

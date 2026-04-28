@@ -12,10 +12,7 @@
     html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     #map { position: absolute; inset: 0; }
 
-    #panel {
-      position: absolute;
-      top: 12px;
-      right: 12px;
+    .card {
       background: #fff;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
       padding: 12px 14px;
@@ -24,13 +21,25 @@
       z-index: 1;
       pointer-events: auto;
     }
+    #panel { position: absolute; top: 12px; right: 12px; }
     #panel .title { font-weight: 600; font-size: 14px; color: #1c1c1c; }
     #panel .subtitle { margin-top: 4px; font-size: 12px; color: #555; }
 
+    #filters { position: absolute; top: 92px; right: 12px; padding: 10px 14px; }
+    #filters .heading { font-weight: 600; font-size: 12px; color: #1c1c1c; margin-bottom: 6px; }
+    #filters label {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: #333; padding: 3px 0; cursor: pointer; user-select: none;
+    }
+    #filters .swatch {
+      display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.12);
+    }
+    #filters input[type="checkbox"] { margin: 0; cursor: pointer; }
+
     #loading {
       position: absolute;
-      top: 50%;
-      left: 50%;
+      top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       background: rgba(255, 255, 255, 0.92);
       padding: 10px 16px;
@@ -43,9 +52,7 @@
     #loading.error { color: #b00020; }
 
     .catchment-popup .maplibregl-popup-content {
-      padding: 10px 12px;
-      font-size: 12px;
-      line-height: 1.45;
+      padding: 10px 12px; font-size: 12px; line-height: 1.45;
     }
     .catchment-popup .stop-name { font-weight: 600; font-size: 13px; }
     .catchment-popup .row { color: #444; }
@@ -54,9 +61,15 @@
 </head>
 <body>
   <div id="map"></div>
-  <div id="panel">
+  <div id="panel" class="card">
     <div class="title">Luxembourg Bus Catchment</div>
     <div class="subtitle">Click any stop to see catchment area</div>
+  </div>
+  <div id="filters" class="card">
+    <div class="heading">Show stops</div>
+    <label><input type="checkbox" data-vt="bus" checked><span class="swatch" style="background:#E84646"></span>Bus</label>
+    <label><input type="checkbox" data-vt="tram" checked><span class="swatch" style="background:#0066CC"></span>Tram</label>
+    <label><input type="checkbox" data-vt="rail" checked><span class="swatch" style="background:#2ECC71"></span>Rail</label>
   </div>
   <div id="loading">Loading stops…</div>
 
@@ -64,6 +77,18 @@
   <script>
     const API = 'https://lux-bus-catchment-api.fly.dev';
     const RADIUS_M = 400;
+
+    // Single source of truth for vehicle_type → colour. Used by stop dots,
+    // the catchment circle, the filter swatches, and the popup.
+    const VT_COLOR = { bus: '#E84646', tram: '#0066CC', rail: '#2ECC71' };
+    const VT_FALLBACK = '#E84646';
+    const COLOR_MATCH = [
+      'match', ['get', 'vehicle_type'],
+      'bus', VT_COLOR.bus,
+      'tram', VT_COLOR.tram,
+      'rail', VT_COLOR.rail,
+      VT_FALLBACK
+    ];
 
     const map = new maplibregl.Map({
       container: 'map',
@@ -83,9 +108,25 @@
 
     const emptyFC = { type: 'FeatureCollection', features: [] };
 
+    // Filter state — drives both stop visibility and which set is logged.
+    const visible = { bus: true, tram: true, rail: true };
+    function activeTypes() {
+      return Object.keys(visible).filter(k => visible[k]);
+    }
+    function buildFilter() {
+      // ['in', ['get', 'vehicle_type'], ['literal', [...]]] keeps only
+      // features whose vehicle_type is in the active set.
+      return ['in', ['get', 'vehicle_type'], ['literal', activeTypes()]];
+    }
+    function applyFilter() {
+      if (!map.getLayer('stops-circle')) return;
+      const f = buildFilter();
+      map.setFilter('stops-circle', f);
+      map.setFilter('stops-label', f);
+    }
+
     map.on('load', async () => {
-      // Communes source/layers placeholder; populated after a small delay
-      // so /stops and /communes don't fire simultaneously.
+      // Communes underneath everything.
       map.addSource('communes', { type: 'geojson', data: emptyFC });
       map.addLayer({
         id: 'communes-fill',
@@ -100,19 +141,20 @@
         paint: { 'line-color': '#185FA5', 'line-width': 0.8, 'line-opacity': 0.4 }
       });
 
-      // Catchment circle (empty until a stop is clicked).
+      // Catchment circle (empty until a stop is clicked). Colour follows the
+      // clicked stop's vehicle_type via the same match expression as the dots.
       map.addSource('catchment-circle', { type: 'geojson', data: emptyFC });
       map.addLayer({
         id: 'catchment-circle-fill',
         type: 'fill',
         source: 'catchment-circle',
-        paint: { 'fill-color': '#E84646', 'fill-opacity': 0.15 }
+        paint: { 'fill-color': COLOR_MATCH, 'fill-opacity': 0.15 }
       });
       map.addLayer({
         id: 'catchment-circle-line',
         type: 'line',
         source: 'catchment-circle',
-        paint: { 'line-color': '#E84646', 'line-width': 2, 'line-opacity': 0.6 }
+        paint: { 'line-color': COLOR_MATCH, 'line-width': 2, 'line-opacity': 0.6 }
       });
 
       // Stops on top of everything.
@@ -121,13 +163,14 @@
         id: 'stops-circle',
         type: 'circle',
         source: 'stops',
+        filter: buildFilter(),
         paint: {
           'circle-radius': [
             'interpolate', ['linear'], ['zoom'],
             10, 5,
             14, 8
           ],
-          'circle-color': '#E84646',
+          'circle-color': COLOR_MATCH,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 1.5,
           'circle-opacity': 0.85
@@ -138,6 +181,7 @@
         type: 'symbol',
         source: 'stops',
         minzoom: 13,
+        filter: buildFilter(),
         layout: {
           'text-field': ['get', 'stop_name'],
           'text-size': 11,
@@ -158,7 +202,12 @@
         if (!stopsResp.ok) throw new Error('stops ' + stopsResp.status);
         const stopsFC = await stopsResp.json();
         map.getSource('stops').setData(stopsFC);
-        console.log('Loaded ' + stopsFC.features.length + ' stops');
+        const counts = stopsFC.features.reduce((acc, f) => {
+          const vt = (f.properties && f.properties.vehicle_type) || 'unknown';
+          acc[vt] = (acc[vt] || 0) + 1;
+          return acc;
+        }, {});
+        console.log('Loaded ' + stopsFC.features.length + ' stops', counts);
         loadingEl.remove();
       } catch (err) {
         console.error('stops fetch failed', err);
@@ -178,6 +227,14 @@
       }, 100);
     });
 
+    // Filter checkbox wiring.
+    document.querySelectorAll('#filters input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        visible[cb.dataset.vt] = cb.checked;
+        applyFilter();
+      });
+    });
+
     map.on('mouseenter', 'stops-circle', () => {
       map.getCanvas().style.cursor = 'pointer';
     });
@@ -187,6 +244,9 @@
 
     let activePopup = null;
     function fmt(n) { return Number(n).toLocaleString(); }
+    function vtLabel(vt) {
+      return vt ? vt.charAt(0).toUpperCase() + vt.slice(1) : '—';
+    }
 
     map.on('click', 'stops-circle', async (e) => {
       const feature = e.features && e.features[0];
@@ -214,6 +274,7 @@
 
         const html =
           '<div class="stop-name">' + escapeHtml(data.stop_name || '') + '</div>' +
+          '<div class="row">Type: ' + escapeHtml(vtLabel(data.vehicle_type)) + '</div>' +
           '<div class="row">Commune: ' + escapeHtml(data.commune || '—') + '</div>' +
           '<div class="row">Radius: ' + data.radius_m + ' m</div>' +
           '<div class="row">Residents: <span class="residents">' + fmt(data.residents) + '</span></div>';
@@ -223,7 +284,7 @@
           map.getSource('catchment-circle').setData({
             type: 'Feature',
             geometry: data.catchment_geojson,
-            properties: {}
+            properties: { vehicle_type: data.vehicle_type || props.vehicle_type || 'bus' }
           });
         }
       } catch (err) {

@@ -56,6 +56,9 @@ def test_stops(client: TestClient) -> None:
     assert 49.3 < lat < 50.3, f"latitude {lat} not in LU range"
     assert "stop_id" in feat["properties"]
     assert "stop_name" in feat["properties"]
+    assert "vehicle_type" in feat["properties"]
+    types = {f["properties"]["vehicle_type"] for f in fc["features"]}
+    assert types <= {"bus", "tram", "rail"}, f"unexpected vehicle_types: {types}"
 
 
 def test_communes(client: TestClient) -> None:
@@ -82,6 +85,7 @@ def test_catchment_ok(client: TestClient) -> None:
     assert body["residents"] == TEST_STOP_RESIDENTS_400M
     assert body["cells_intersected"] >= 1
     assert body["catchment_geojson"]["type"] == "Polygon"
+    assert body["vehicle_type"] in {"bus", "tram", "rail"}
     parts = (
         body["residents_under15"]
         + body["residents_working_age"]

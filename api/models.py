@@ -38,6 +38,7 @@ class CatchmentResponse(BaseModel):
     stop_id: str
     stop_name: str
     commune: str | None
+    vehicle_type: str
     radius_m: int
     residents: int
     residents_under15: int
