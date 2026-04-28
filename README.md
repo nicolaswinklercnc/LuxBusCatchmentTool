@@ -28,12 +28,38 @@ requirements.txt     Python dependencies
 ## Quickstart
 
 ```bash
-cp .env.example .env
+cp .env.example .env.local
 docker compose up -d
-curl http://localhost:8000/health   # -> {"status":"ok","crs":"EPSG:3035"}
+curl http://localhost:8000/health   # -> {"status":"ok","db":"connected", ...}
+python frontend/serve.py            # opens http://localhost:3000
 ```
 
-Open `frontend/index.html` in a browser (or visit the GitHub Pages URL once deployed) to see the map.
+## Environments
+
+The repo uses two env files, both gitignored:
+
+| File | When loaded | What it points at |
+|---|---|---|
+| `.env.local` | default — `ENVIRONMENT` unset or anything other than `production` | local Docker postgis (`localhost:5432`) |
+| `.env.production` | `ENVIRONMENT=production` | Supabase (the live database) |
+
+`ingest/db.py` and `api/db.py` pick the right file at startup based on the `ENVIRONMENT` shell variable. The selected file's name is printed to stderr (e.g. `[db] ENVIRONMENT=development`) so you always see which database the process is about to talk to.
+
+```bash
+# Local development (default — never touches production):
+python ingest/run_all.py
+
+# Production data load (deliberate opt-in):
+ENVIRONMENT=production python ingest/run_all.py
+```
+
+To set up for the first time:
+```bash
+cp .env.example .env.local         # already configured for local Docker
+cp .env.example .env.production    # then uncomment the production block, paste the Supabase URL
+```
+
+The Fly.io API and the GitHub Pages frontend never load these files — they get configuration from Fly secrets and from the static `frontend/.env.development` injection respectively.
 
 ## Deployment
 
@@ -51,7 +77,7 @@ Set the connection string (and any other secret) on Fly:
 flyctl secrets set DATABASE_URL="postgresql://user:pass@host:5432/db"
 ```
 
-Never commit credentials. `.env` is gitignored; `.env.example` only carries placeholders.
+Never commit credentials. `.env`, `.env.local`, and `.env.production` are all gitignored; `.env.example` is the committed template.
 
 ### Keep-warm
 

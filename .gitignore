@@ -1,5 +1,9 @@
-# Secrets
+# Secrets — env files are per-environment and never committed.
+# .env.example is the committed template. .env is kept ignored as a
+# convenience for older clones that still have one.
 .env
+.env.local
+.env.production
 
 # Python
 __pycache__/

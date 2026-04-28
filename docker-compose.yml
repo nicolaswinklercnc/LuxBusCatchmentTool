@@ -3,7 +3,10 @@ services:
     image: postgis/postgis:15-3.3
     container_name: luxbus-postgis
     restart: unless-stopped
-    env_file: .env
+    # docker-compose is local-dev only, so it reads .env.local for the
+    # POSTGRES_* bootstrap vars. Production runs on Fly.io / Supabase and
+    # never touches this file.
+    env_file: .env.local
     ports:
       - "5432:5432"
     volumes:
@@ -18,10 +21,15 @@ services:
     image: python:3.11-slim
     container_name: luxbus-api
     restart: unless-stopped
+    # Hardcoded for local dev — the api container always talks to the
+    # adjacent `postgis` service over the docker network. These values
+    # mirror .env.local's POSTGRES_* block. The repo's .env.local /
+    # .env.production split is for tools running on the host, not for
+    # this container.
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      PROJECTED_CRS: ${PROJECTED_CRS}
-      ENVIRONMENT: ${ENVIRONMENT}
+      DATABASE_URL: postgresql://luxbus:changeme@postgis:5432/luxbus
+      PROJECTED_CRS: EPSG:3035
+      ENVIRONMENT: development
     working_dir: /app
     volumes:
       - ./api:/app/api

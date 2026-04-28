@@ -20,14 +20,47 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+
+
+def _select_env_file() -> Path:
+    """Pick .env.local or .env.production based on ENVIRONMENT.
+
+    Same selection rule as ingest/db.py — keeps ingest and the API in sync.
+    """
+    env = (os.getenv("ENVIRONMENT") or "").strip().lower()
+    if env == "production":
+        return PROJECT_ROOT / ".env.production"
+    return PROJECT_ROOT / ".env.local"
+
+
+def _load_env() -> None:
+    """Load the chosen env file. No-ops silently if neither file exists AND
+    DATABASE_URL is already in the process env (the case inside the API
+    container, where docker-compose / Fly secrets supplies DATABASE_URL)."""
+    chosen = _select_env_file()
+    if chosen.exists():
+        load_dotenv(chosen, override=False)
+    elif not os.getenv("DATABASE_URL"):
+        local = PROJECT_ROOT / ".env.local"
+        prod = PROJECT_ROOT / ".env.production"
+        raise RuntimeError(
+            f"No env file found at {chosen}.\n"
+            f"  Local development: copy .env.example to .env.local.\n"
+            f"  Production:        set ENVIRONMENT=production and create .env.production.\n"
+            f"  Looked for: {local}, {prod}"
+        )
+
+
+_load_env()
 
 
 def _database_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
         raise RuntimeError(
-            "DATABASE_URL is not set. Copy .env.example to .env and edit it."
+            "DATABASE_URL is not set. Copy .env.example to .env.local and "
+            "edit it, or set ENVIRONMENT=production with a populated "
+            ".env.production."
         )
     return url
 

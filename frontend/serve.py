@@ -138,6 +138,17 @@ def main() -> int:
     if not env:
         print(f"  (no .env.development at {ENV_FILE} — nothing to inject)")
 
+    # Cross-check the shell ENVIRONMENT used by ingest/api scripts. If the
+    # user has ENVIRONMENT=production set, the local backend (if any) might
+    # be configured to point at Supabase, and the dev server is no longer
+    # local-only. Warn but don't block.
+    shell_env = (os.getenv("ENVIRONMENT") or "").strip().lower()
+    if shell_env == "production":
+        print(
+            "WARNING: ENVIRONMENT=production - dev server will hit live "
+            "Supabase. Set ENVIRONMENT=development for local development."
+        )
+
     if not args.no_open and not os.getenv("CI"):
         webbrowser.open(url)
 
