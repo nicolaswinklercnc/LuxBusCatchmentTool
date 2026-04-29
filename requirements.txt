@@ -9,3 +9,8 @@ python-dotenv>=1.0
 requests>=2.31
 sqlalchemy>=2.0
 beautifulsoup4>=4.12
+
+# Test deps. Local devs often have these installed globally; CI runners
+# don't, so test.yml's `pip install -r requirements.txt` needs them listed.
+pytest>=8.0
+httpx>=0.27
