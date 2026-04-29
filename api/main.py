@@ -302,10 +302,11 @@ def cycling() -> Response:
           ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geom_json,
           osm_id,
           category,
+          source,
           name,
           surface
         FROM cycling_infrastructure
-        ORDER BY osm_id;
+        ORDER BY feature_id;
         """
     )
     return Response(

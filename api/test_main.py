@@ -153,11 +153,15 @@ def test_cycling(client: TestClient) -> None:
     assert len(fc["features"]) >= 1
     feat = fc["features"][0]
     assert feat["geometry"]["type"] == "LineString"
-    for key in ("osm_id", "category", "name", "surface"):
+    for key in ("osm_id", "category", "source", "name", "surface"):
         assert key in feat["properties"]
     cats = {f["properties"]["category"] for f in fc["features"]}
     assert cats <= {"segregated", "shared", "planned"}, (
         f"unexpected cycling categories: {cats}"
+    )
+    sources = {f["properties"]["source"] for f in fc["features"]}
+    assert sources <= {"osm", "official_lu"}, (
+        f"unexpected cycling sources: {sources}"
     )
 
 

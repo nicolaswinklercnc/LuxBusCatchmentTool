@@ -46,12 +46,14 @@ CREATE TABLE population_grid (
 );
 
 CREATE TABLE cycling_infrastructure (
-  osm_id   BIGINT PRIMARY KEY,
-  category TEXT NOT NULL,
-  highway  TEXT,
-  name     TEXT,
-  surface  TEXT,
-  geom     GEOMETRY(LineString, 3035) NOT NULL
+  feature_id SERIAL PRIMARY KEY,
+  osm_id     BIGINT,
+  category   TEXT NOT NULL,
+  source     TEXT NOT NULL,
+  highway    TEXT,
+  name       TEXT,
+  surface    TEXT,
+  geom       GEOMETRY(LineString, 3035) NOT NULL
 );
 
 CREATE INDEX bus_stops_geom_idx              ON bus_stops              USING GIST(geom);
@@ -96,12 +98,14 @@ INSERT INTO population_grid (grid_id, pop_count, pop_under15, pop_working_age, p
   ('C4', 200, 40, 120, 40,
      ST_GeomFromText('POLYGON((4070000 2970000, 4071000 2970000, 4071000 2971000, 4070000 2971000, 4070000 2970000))', 3035));
 
--- Cycling infrastructure. Two LineStrings inside the existing fixture
--- footprint: one segregated cycleway, one shared on-road lane. Geometries
--- are arbitrary; the tests assert structure (status / FeatureCollection /
--- categories) not specific lengths.
-INSERT INTO cycling_infrastructure (osm_id, category, highway, name, surface, geom) VALUES
-  (1001, 'segregated', 'cycleway', 'Test Path A', 'asphalt',
+-- Cycling infrastructure. Three LineStrings inside the existing fixture
+-- footprint: two OSM-sourced (segregated + shared) and one official_lu
+-- without an osm_id. Geometries are arbitrary; the tests assert structure
+-- (status / FeatureCollection / categories / source enum), not lengths.
+INSERT INTO cycling_infrastructure (osm_id, category, source, highway, name, surface, geom) VALUES
+  (1001, 'segregated', 'osm',         'cycleway', 'Test Path A',         'asphalt',
      ST_GeomFromText('LINESTRING(4080000 2980000, 4081000 2980000)', 3035)),
-  (1002, 'shared',     'tertiary', 'Test Lane B', NULL,
-     ST_GeomFromText('LINESTRING(4082000 2980500, 4083000 2980500)', 3035));
+  (1002, 'shared',     'osm',         'tertiary', 'Test Lane B',         NULL,
+     ST_GeomFromText('LINESTRING(4082000 2980500, 4083000 2980500)', 3035)),
+  (NULL, 'segregated', 'official_lu', NULL,       'National Test Route', NULL,
+     ST_GeomFromText('LINESTRING(4080000 2981500, 4081000 2981500)', 3035));
