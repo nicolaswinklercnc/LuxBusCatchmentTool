@@ -82,7 +82,11 @@ jobs:
           TEST_STOP_RESIDENTS_400M: '100'
           TEST_COMMUNE_NAME: Luxembourg-Test
           NOT_A_COMMUNE: NotARealCommune
-        run: pytest api/test_main.py -v
+        # `python -m pytest` (vs bare `pytest`) is belt-and-braces against
+        # PATH issues — it works as long as pytest is installed in the active
+        # interpreter, no matter what setup-python's `cache: pip` did with
+        # binstubs.
+        run: python -m pytest api/test_main.py -v
 
       - name: Result
         if: always()
