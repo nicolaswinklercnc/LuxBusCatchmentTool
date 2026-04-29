@@ -1,11 +1,10 @@
-# Production Fly.io app configuration. Deployed automatically by
-# .github/workflows/deploy-production.yml on push to `main`. Staging
-# uses fly.staging.toml — keep these two files in sync (only `app` and
-# any per-env secrets should differ).
-#
-# See https://fly.io/docs/reference/configuration/ for the schema.
+# Staging Fly.io app configuration. Deployed automatically by
+# .github/workflows/deploy-staging.yml on push to `develop`. Mirror of
+# fly.toml except for `app`. Per-env secrets (e.g. DATABASE_URL pointing at
+# the staging Supabase project) are set with:
+#   flyctl secrets set DATABASE_URL=... --app lux-bus-catchment-api-staging
 
-app = 'lux-bus-catchment-api'
+app = 'lux-bus-catchment-api-staging'
 primary_region = 'cdg'
 
 [build]

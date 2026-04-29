@@ -23,13 +23,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _select_env_file() -> Path:
-    """Pick .env.local or .env.production based on ENVIRONMENT.
+    """Pick .env.local / .env.staging / .env.production based on ENVIRONMENT.
 
     Same selection rule as ingest/db.py — keeps ingest and the API in sync.
     """
     env = (os.getenv("ENVIRONMENT") or "").strip().lower()
     if env == "production":
         return PROJECT_ROOT / ".env.production"
+    if env == "staging":
+        return PROJECT_ROOT / ".env.staging"
     return PROJECT_ROOT / ".env.local"
 
 
@@ -41,13 +43,11 @@ def _load_env() -> None:
     if chosen.exists():
         load_dotenv(chosen, override=False)
     elif not os.getenv("DATABASE_URL"):
-        local = PROJECT_ROOT / ".env.local"
-        prod = PROJECT_ROOT / ".env.production"
         raise RuntimeError(
             f"No env file found at {chosen}.\n"
             f"  Local development: copy .env.example to .env.local.\n"
-            f"  Production:        set ENVIRONMENT=production and create .env.production.\n"
-            f"  Looked for: {local}, {prod}"
+            f"  Staging:           set ENVIRONMENT=staging and create .env.staging.\n"
+            f"  Production:        set ENVIRONMENT=production and create .env.production."
         )
 
 

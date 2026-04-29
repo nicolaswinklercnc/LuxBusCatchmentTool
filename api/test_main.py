@@ -1,21 +1,32 @@
 """Endpoint tests for the FastAPI app.
 
-These hit the live PostGIS database via FastAPI's TestClient — they are
-integration tests, not pure unit tests. They assume the ingest pipeline has
-already run (bus_stops, communes, population_grid loaded).
+These hit a live PostGIS database via FastAPI's TestClient — integration
+tests, not pure unit tests. They run in two contexts:
+
+  - Local: against the developer's Docker DB after `python ingest/run_all.py`.
+    The default constants below match the Eurostat / GTFS dataset.
+  - CI: against a tiny hand-crafted fixture (`api/test_fixtures/init.sql`).
+    The CI workflow exports env vars (EXPECTED_STOPS, TEST_STOP_ID, …) that
+    override the defaults so the same assertions resolve to fixture totals.
 """
 from __future__ import annotations
+
+import os
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
 
-EXPECTED_STOPS = 2_793
-EXPECTED_COMMUNES = 100
-EXPECTED_POPULATION_CELLS = 2_794
-TEST_STOP_ID = "110102007"
-TEST_STOP_RESIDENTS_400M = 461
+# Expected counts — overridable via env so CI's fixture (3 stops, 2 communes,
+# 4 cells) can pass alongside the production-shaped local dataset.
+EXPECTED_STOPS = int(os.getenv("EXPECTED_STOPS", "2793"))
+EXPECTED_COMMUNES = int(os.getenv("EXPECTED_COMMUNES", "100"))
+EXPECTED_POPULATION_CELLS = int(os.getenv("EXPECTED_POPULATION_CELLS", "2794"))
+TEST_STOP_ID = os.getenv("TEST_STOP_ID", "110102007")
+TEST_STOP_RESIDENTS_400M = int(os.getenv("TEST_STOP_RESIDENTS_400M", "461"))
+TEST_COMMUNE_NAME = os.getenv("TEST_COMMUNE_NAME", "Clervaux")
+NOT_A_COMMUNE = os.getenv("NOT_A_COMMUNE", "NotARealCommune")
 
 
 @pytest.fixture(scope="module")
@@ -116,10 +127,10 @@ def test_catchment_422_radius_not_int(client: TestClient) -> None:
 
 
 def test_commune_summary_ok(client: TestClient) -> None:
-    r = client.get("/commune/Clervaux/summary")
+    r = client.get(f"/commune/{TEST_COMMUNE_NAME}/summary")
     assert r.status_code == 200
     body = r.json()
-    assert body["commune"] == "Clervaux"
+    assert body["commune"] == TEST_COMMUNE_NAME
     assert body["total_stops"] >= 1
     assert body["total_population"] >= 0
     assert body["residents_within_400m"] >= 0
@@ -129,5 +140,5 @@ def test_commune_summary_ok(client: TestClient) -> None:
 
 
 def test_commune_summary_404(client: TestClient) -> None:
-    r = client.get("/commune/NotARealCommune/summary")
+    r = client.get(f"/commune/{NOT_A_COMMUNE}/summary")
     assert r.status_code == 404

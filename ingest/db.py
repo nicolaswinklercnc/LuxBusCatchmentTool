@@ -1,10 +1,11 @@
 """Shared database connection helpers for ingest scripts.
 
-Loads either `.env.local` or `.env.production` based on the ENVIRONMENT
-variable in the shell, then reads DATABASE_URL from the resulting env.
+Loads one of three env files based on the ENVIRONMENT variable in the shell,
+then reads DATABASE_URL from the resulting env.
 
-  ENVIRONMENT unset or != "production"  -> .env.local      (local Docker)
-  ENVIRONMENT == "production"           -> .env.production (Supabase)
+  ENVIRONMENT unset or "development"  -> .env.local      (local Docker)
+  ENVIRONMENT == "staging"            -> .env.staging    (Supabase staging)
+  ENVIRONMENT == "production"         -> .env.production (Supabase prod)
 
 This means `python ingest/run_all.py` always hits local Docker, and you
 have to type `ENVIRONMENT=production python ingest/run_all.py` to touch
@@ -31,10 +32,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _select_env_file() -> Path:
-    """Pick .env.local or .env.production based on ENVIRONMENT."""
+    """Pick .env.local / .env.staging / .env.production based on ENVIRONMENT."""
     env = (os.getenv("ENVIRONMENT") or "").strip().lower()
     if env == "production":
         return PROJECT_ROOT / ".env.production"
+    if env == "staging":
+        return PROJECT_ROOT / ".env.staging"
     return PROJECT_ROOT / ".env.local"
 
 
@@ -49,14 +52,12 @@ def _load_env() -> str:
     if chosen.exists():
         load_dotenv(chosen, override=False)
     elif not os.getenv("DATABASE_URL"):
-        local = PROJECT_ROOT / ".env.local"
-        prod = PROJECT_ROOT / ".env.production"
         raise RuntimeError(
             f"No env file found at {chosen}.\n"
             f"  Local development: copy .env.example to .env.local and run again.\n"
+            f"  Staging:           set ENVIRONMENT=staging and create .env.staging.\n"
             f"  Production:        set ENVIRONMENT=production and create .env.production\n"
-            f"                     (see .env.example for the layout).\n"
-            f"  Looked for: {local}, {prod}"
+            f"                     (see .env.example for the layout)."
         )
     return (os.getenv("ENVIRONMENT") or "development").strip().lower()
 

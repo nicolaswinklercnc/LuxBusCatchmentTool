@@ -3,6 +3,7 @@
 # convenience for older clones that still have one.
 .env
 .env.local
+.env.staging
 .env.production
 
 # Python

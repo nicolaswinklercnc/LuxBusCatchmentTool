@@ -1,0 +1,86 @@
+# Production deploy — only fires for pushes to `main`. Runs the full test
+# gate first (api/test_main.py against a fixture DB), then ships the API to
+# Fly.io and the frontend to GitHub Pages in parallel.
+#
+# Required GitHub Secrets:
+#   FLY_API_TOKEN          -> from `flyctl auth token`
+#
+# Companion: deploy-staging.yml (on push to develop). Recommended companion:
+# protect `main` in repo settings with "Require pull request before merging"
+# so accidental `git push origin main` can't bypass review.
+
+name: deploy-production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy-api:
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production-api
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io (production)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --config fly.toml
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./frontend
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  summary:
+    needs: [deploy-api, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Write summary
+        run: |
+          {
+            echo "## Production deploy"
+            echo ""
+            echo "| Component | URL | Status |"
+            echo "|---|---|---|"
+            echo "| API      | https://lux-bus-catchment-api.fly.dev | ${{ needs.deploy-api.result }} |"
+            echo "| Frontend | https://nicolaswinklercnc.github.io/LuxBusCatchmentTool | ${{ needs.deploy-frontend.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Production::API + Pages deployed (commit ${GITHUB_SHA::7})"

@@ -1,0 +1,41 @@
+# Deploys the FastAPI backend to the staging Fly.io app on every push to
+# `develop`. Frontend has no staging deploy by design — engineers test the
+# frontend locally via `python frontend/serve.py` against this staging URL.
+#
+# Required GitHub Secrets:
+#   FLY_API_TOKEN          -> from `flyctl auth token`
+#
+# Sister workflow: deploy-production.yml (on push to main).
+
+name: deploy-staging
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io (staging)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --config fly.staging.toml
+
+      - name: Summary
+        run: |
+          echo "::notice title=Staging deploy::Deployed to https://lux-bus-catchment-api-staging.fly.dev"

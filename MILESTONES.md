@@ -27,5 +27,18 @@
 - **Live URL:** https://nicolaswinklercnc.github.io/LuxBusCatchmentTool
 - Single-file `frontend/index.html` (no build step). MapLibre 4.7.1 + OpenFreeMap Liberty basemap, locked to Luxembourg via `maxBounds`. Fetches `/stops` and `/communes` from the live API, renders stops as red dots (with labels at zoom ≥ 13) over faint blue commune outlines. Click a stop → popup with name/commune/residents and a translucent red 400 m catchment circle drawn from `/catchment`'s WGS84 polygon. Auto-deploys via `.github/workflows/deploy.yml` on push to `main`.
 
+## Pipeline setup — staging + production environments
+- **Status:** COMPLETE
+- **Date:** 2026-04-29
+- **Branch model:**
+  - `feature/*` — `test.yml` only (pytest against `api/test_fixtures/init.sql`)
+  - `develop` → `deploy-staging.yml` — pytest + deploy API to `lux-bus-catchment-api-staging`
+  - `main` → `deploy-production.yml` — pytest + deploy API to `lux-bus-catchment-api` + frontend to GitHub Pages
+- **Staging API:** https://lux-bus-catchment-api-staging.fly.dev
+- **Production API:** https://lux-bus-catchment-api.fly.dev
+- **Frontend (prod):** https://nicolaswinklercnc.github.io/LuxBusCatchmentTool
+- **Env files:** `.env.local` / `.env.staging` / `.env.production` selected by `ENVIRONMENT` shell var (default = local Docker).
+- **CI fixture:** 3 stops, 2 communes, 4 population cells in EPSG:3035 — engineered so `BUS001 + 400 m` resolves to exactly 100 residents and `Luxembourg-Test` summary lands on a known total.
+
 ## Milestone 5 — Deployment verification + observability
 - **Status:** NOT STARTED

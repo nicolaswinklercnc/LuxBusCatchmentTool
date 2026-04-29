@@ -1,0 +1,95 @@
+# Reusable + branch-triggered test pipeline.
+#
+# - Feature branches (anything that isn't `main` or `develop`) hit this
+#   workflow directly via the `push` trigger so engineers see CI status on
+#   every commit.
+# - `deploy-staging.yml` (push to develop) and `deploy-production.yml`
+#   (push to main) call this workflow via `workflow_call` as a gate before
+#   shipping. That keeps test logic in one place.
+#
+# What this runs:
+#   1. Spin up a postgis service container.
+#   2. Load `api/test_fixtures/init.sql` (3 stops / 2 communes / 4 cells).
+#   3. `pytest api/test_main.py -v` against the fixture, with env vars that
+#      override the production-shaped expected counts.
+#
+# No GitHub Secrets are required — this job is hermetic.
+
+name: test
+
+on:
+  workflow_call: {}
+  push:
+    branches-ignore:
+      - main
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgis:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_DB: luxbus
+          POSTGRES_USER: luxbus
+          POSTGRES_PASSWORD: changeme
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U luxbus -d luxbus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Load fixture
+        env:
+          PGPASSWORD: changeme
+        run: |
+          psql -h localhost -p 5432 -U luxbus -d luxbus \
+            -v ON_ERROR_STOP=1 \
+            -f api/test_fixtures/init.sql
+
+      - name: Run pytest
+        id: pytest
+        env:
+          DATABASE_URL: postgresql://luxbus:changeme@localhost:5432/luxbus
+          ENVIRONMENT: development
+          PROJECTED_CRS: EPSG:3035
+          EXPECTED_STOPS: '3'
+          EXPECTED_COMMUNES: '2'
+          EXPECTED_POPULATION_CELLS: '4'
+          TEST_STOP_ID: BUS001
+          TEST_STOP_RESIDENTS_400M: '100'
+          TEST_COMMUNE_NAME: Luxembourg-Test
+          NOT_A_COMMUNE: NotARealCommune
+        run: pytest api/test_main.py -v
+
+      - name: Result
+        if: always()
+        run: |
+          if [ "${{ steps.pytest.outcome }}" = "success" ]; then
+            echo "::notice title=Tests::PASS"
+          else
+            echo "::error title=Tests::FAIL"
+            exit 1
+          fi
