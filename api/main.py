@@ -289,3 +289,54 @@ def commune_summary(name: str) -> CommuneSummaryResponse:
         coverage_pct=pct,
         stops_geojson=fc,
     )
+
+
+@app.get(
+    "/cycling",
+    response_model=GeoJSONFeatureCollection,
+)
+def cycling() -> Response:
+    fc = run_geo_query(
+        """
+        SELECT
+          ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geom_json,
+          osm_id,
+          category,
+          name,
+          surface
+        FROM cycling_infrastructure
+        ORDER BY osm_id;
+        """
+    )
+    return Response(
+        content=json.dumps(fc),
+        media_type=GEOJSON_MEDIA_TYPE,
+        headers={"Cache-Control": CACHE_1H},
+    )
+
+
+@app.get("/cycling/summary")
+def cycling_summary() -> dict:
+    """Per-category feature count + km, plus total km. Used by the frontend
+    filter UI to show '(NN km)' suffixes."""
+    rows = run_query(
+        """
+        SELECT
+          category,
+          COUNT(*) AS count,
+          ROUND((COALESCE(SUM(ST_Length(geom)), 0) / 1000.0)::numeric, 1) AS km
+        FROM cycling_infrastructure
+        GROUP BY category;
+        """
+    )
+    out: dict = {
+        c: {"count": 0, "km": 0.0} for c in ("segregated", "shared", "planned")
+    }
+    for r in rows:
+        cat = r["category"]
+        if cat in out:
+            out[cat] = {"count": int(r["count"]), "km": float(r["km"])}
+    out["total_km"] = round(
+        sum(v["km"] for v in out.values() if isinstance(v, dict)), 1
+    )
+    return out

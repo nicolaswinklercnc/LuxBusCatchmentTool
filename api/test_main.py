@@ -142,3 +142,38 @@ def test_commune_summary_ok(client: TestClient) -> None:
 def test_commune_summary_404(client: TestClient) -> None:
     r = client.get(f"/commune/{NOT_A_COMMUNE}/summary")
     assert r.status_code == 404
+
+
+def test_cycling(client: TestClient) -> None:
+    r = client.get("/cycling")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/geo+json")
+    fc = r.json()
+    assert fc["type"] == "FeatureCollection"
+    assert len(fc["features"]) >= 1
+    feat = fc["features"][0]
+    assert feat["geometry"]["type"] == "LineString"
+    for key in ("osm_id", "category", "name", "surface"):
+        assert key in feat["properties"]
+    cats = {f["properties"]["category"] for f in fc["features"]}
+    assert cats <= {"segregated", "shared", "planned"}, (
+        f"unexpected cycling categories: {cats}"
+    )
+
+
+def test_cycling_summary(client: TestClient) -> None:
+    r = client.get("/cycling/summary")
+    assert r.status_code == 200
+    body = r.json()
+    for k in ("segregated", "shared", "planned"):
+        assert k in body
+        assert "count" in body[k] and "km" in body[k]
+    assert "total_km" in body
+    assert isinstance(body["total_km"], (int, float))
+
+
+def test_cycling_features_have_category(client: TestClient) -> None:
+    r = client.get("/cycling")
+    fc = r.json()
+    for feat in fc["features"]:
+        assert feat["properties"]["category"] in {"segregated", "shared", "planned"}

@@ -30,3 +30,4 @@ node_modules/
 data/
 ingest/data/*.gpkg
 ingest/data/*.zip
+ingest/data/*.json

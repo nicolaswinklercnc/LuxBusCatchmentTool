@@ -36,6 +36,21 @@
       border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.12);
     }
     #filters input[type="checkbox"] { margin: 0; cursor: pointer; }
+    #filters .filter-sep {
+      margin: 8px 0;
+      border: 0;
+      border-top: 1px solid #e3e3e3;
+    }
+    #filters .swatch-line {
+      display: inline-block; width: 14px; height: 3px;
+      border-radius: 1px; vertical-align: middle;
+    }
+    #filters .swatch-line.dashed {
+      background: repeating-linear-gradient(
+        90deg, currentColor 0 4px, transparent 4px 7px
+      ) !important;
+      background-color: transparent !important;
+    }
 
     #loading {
       position: absolute;
@@ -70,6 +85,11 @@
     <label><input type="checkbox" data-vt="bus" checked><span class="swatch" style="background:#E84646"></span>Bus</label>
     <label><input type="checkbox" data-vt="tram" checked><span class="swatch" style="background:#0066CC"></span>Tram</label>
     <label><input type="checkbox" data-vt="rail" checked><span class="swatch" style="background:#2ECC71"></span>Rail</label>
+    <hr class="filter-sep">
+    <div class="heading">Cycling infrastructure</div>
+    <label><input type="checkbox" data-cy="segregated" checked><span class="swatch-line" style="background:#2ECC71"></span><span data-cy-label="segregated">Segregated</span></label>
+    <label><input type="checkbox" data-cy="shared" checked><span class="swatch-line" style="background:#F39C12"></span><span data-cy-label="shared">Shared lane</span></label>
+    <label><input type="checkbox" data-cy="planned" checked><span class="swatch-line dashed" style="color:#9B59B6"></span><span data-cy-label="planned">Planned</span></label>
   </div>
   <div id="loading">Loading stops…</div>
 
@@ -81,11 +101,12 @@
     const API_URL = (typeof window !== 'undefined' && window.API_URL) ||
                     'https://lux-bus-catchment-api.fly.dev';
     const RADIUS_M = 400;
-    // Bumped when the response shape changes — appended to /stops and
-    // /communes URLs to dodge browsers' cached older payloads. Browsers obey
-    // /stops' Cache-Control: max-age=3600, which cached the pre-vehicle_type
-    // response. Increment this whenever the API response shape changes.
-    const DATA_VERSION = 2;
+    // Bumped when the response shape changes — appended to /stops, /communes
+    // and /cycling URLs to dodge browsers' cached older payloads. Browsers
+    // obey the Cache-Control: max-age=3600 header on those responses, so old
+    // payloads can stick around for up to an hour. Increment whenever an API
+    // response gains/loses a field.
+    const DATA_VERSION = 3;
 
     // Single source of truth for vehicle_type → colour. Used by stop dots,
     // the catchment circle, the filter swatches, and the popup.
@@ -172,6 +193,37 @@
         type: 'line',
         source: 'catchment-circle',
         paint: { 'line-color': COLOR_MATCH, 'line-width': 2, 'line-opacity': 0.6 }
+      });
+
+      // Cycling infrastructure — between communes/catchment and stops, so
+      // bike lanes render under the stop dots. Three line layers split by
+      // category so each can be toggled independently without rebuilding.
+      map.addSource('cycling', { type: 'geojson', data: emptyFC });
+      map.addLayer({
+        id: 'cycling-segregated',
+        type: 'line',
+        source: 'cycling',
+        filter: ['==', ['get', 'category'], 'segregated'],
+        paint: { 'line-color': '#2ECC71', 'line-width': 2.5, 'line-opacity': 0.8 }
+      });
+      map.addLayer({
+        id: 'cycling-shared',
+        type: 'line',
+        source: 'cycling',
+        filter: ['==', ['get', 'category'], 'shared'],
+        paint: { 'line-color': '#F39C12', 'line-width': 2, 'line-opacity': 0.7 }
+      });
+      map.addLayer({
+        id: 'cycling-planned',
+        type: 'line',
+        source: 'cycling',
+        filter: ['==', ['get', 'category'], 'planned'],
+        paint: {
+          'line-color': '#9B59B6',
+          'line-width': 2,
+          'line-opacity': 0.6,
+          'line-dasharray': [3, 3]
+        }
       });
 
       // Stops on top of everything.
@@ -268,15 +320,66 @@
           console.error('communes fetch failed', err);
         }
       }, 100);
+
+      // Cycling infrastructure — geometry + per-category summary fetched in
+      // parallel so the filter labels can show '(NN km)' once both resolve.
+      setTimeout(async () => {
+        try {
+          const [cyclingResp, summaryResp] = await Promise.all([
+            fetch(API_URL + '/cycling?v=' + DATA_VERSION),
+            fetch(API_URL + '/cycling/summary?v=' + DATA_VERSION)
+          ]);
+          if (cyclingResp.ok) {
+            map.getSource('cycling').setData(await cyclingResp.json());
+          } else {
+            console.error('cycling fetch failed', cyclingResp.status);
+          }
+          if (summaryResp.ok) {
+            updateCyclingLabels(await summaryResp.json());
+          }
+        } catch (err) {
+          console.error('cycling fetch failed', err);
+        }
+      }, 200);
     });
 
-    // Filter checkbox wiring.
-    document.querySelectorAll('#filters input[type="checkbox"]').forEach(cb => {
+    // Filter checkbox wiring — vehicle types drive the stops filter; cycling
+    // categories toggle layer visibility directly via setLayoutProperty.
+    document.querySelectorAll('#filters input[data-vt]').forEach(cb => {
       cb.addEventListener('change', () => {
         visible[cb.dataset.vt] = cb.checked;
         applyFilter();
       });
     });
+    document.querySelectorAll('#filters input[data-cy]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const layerId = 'cycling-' + cb.dataset.cy;
+        if (!map.getLayer(layerId)) return;
+        map.setLayoutProperty(
+          layerId,
+          'visibility',
+          cb.checked ? 'visible' : 'none'
+        );
+      });
+    });
+
+    function updateCyclingLabels(summary) {
+      if (!summary) return;
+      const labels = {
+        segregated: 'Segregated',
+        shared: 'Shared lane',
+        planned: 'Planned'
+      };
+      for (const cat of Object.keys(labels)) {
+        const el = document.querySelector('[data-cy-label="' + cat + '"]');
+        if (!el) continue;
+        const km = summary[cat] && typeof summary[cat].km === 'number'
+          ? summary[cat].km : null;
+        el.textContent = km == null
+          ? labels[cat]
+          : labels[cat] + ' (' + km.toFixed(1) + ' km)';
+      }
+    }
 
     map.on('mouseenter', 'stops-circle', () => {
       map.getCanvas().style.cursor = 'pointer';

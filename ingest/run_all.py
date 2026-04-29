@@ -21,6 +21,7 @@ SCRIPTS = [
     ("bus_stops", "download_gtfs"),
     ("communes", "download_communes"),
     ("population_grid", "download_population"),
+    ("cycling_infrastructure", "download_cycling"),
 ]
 
 
@@ -101,12 +102,12 @@ def backfill_commune_on_bus_stops() -> None:
 
 
 def print_summary() -> None:
-    print("\nTable           | Rows loaded")
-    print("----------------|------------")
+    print("\nTable                  | Rows loaded")
+    print("-----------------------|------------")
     for table, _ in SCRIPTS:
         n = row_count(table)
         n_str = "FAILED" if n is None else f"{n}"
-        print(f"{table:<15} | {n_str}")
+        print(f"{table:<22} | {n_str}")
 
 
 def main() -> int:

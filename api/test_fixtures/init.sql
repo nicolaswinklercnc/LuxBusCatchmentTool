@@ -18,6 +18,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 DROP TABLE IF EXISTS bus_stops;
 DROP TABLE IF EXISTS communes;
 DROP TABLE IF EXISTS population_grid;
+DROP TABLE IF EXISTS cycling_infrastructure;
 
 CREATE TABLE bus_stops (
   stop_id      TEXT PRIMARY KEY,
@@ -44,9 +45,19 @@ CREATE TABLE population_grid (
   geom             GEOMETRY(Polygon, 3035) NOT NULL
 );
 
-CREATE INDEX bus_stops_geom_idx       ON bus_stops       USING GIST(geom);
-CREATE INDEX communes_geom_idx        ON communes        USING GIST(geom);
-CREATE INDEX population_grid_geom_idx ON population_grid USING GIST(geom);
+CREATE TABLE cycling_infrastructure (
+  osm_id   BIGINT PRIMARY KEY,
+  category TEXT NOT NULL,
+  highway  TEXT,
+  name     TEXT,
+  surface  TEXT,
+  geom     GEOMETRY(LineString, 3035) NOT NULL
+);
+
+CREATE INDEX bus_stops_geom_idx              ON bus_stops              USING GIST(geom);
+CREATE INDEX communes_geom_idx               ON communes               USING GIST(geom);
+CREATE INDEX population_grid_geom_idx        ON population_grid        USING GIST(geom);
+CREATE INDEX cycling_infrastructure_geom_idx ON cycling_infrastructure USING GIST(geom);
 
 -- Stops. BUS001 sits in the centre of cell C1 so a 400 m buffer is fully
 -- inside C1 and intersects no other cell — keeps the catchment count exact.
@@ -84,3 +95,13 @@ INSERT INTO population_grid (grid_id, pop_count, pop_under15, pop_working_age, p
      ST_GeomFromText('POLYGON((4080000 2985000, 4081000 2985000, 4081000 2986000, 4080000 2986000, 4080000 2985000))', 3035)),
   ('C4', 200, 40, 120, 40,
      ST_GeomFromText('POLYGON((4070000 2970000, 4071000 2970000, 4071000 2971000, 4070000 2971000, 4070000 2970000))', 3035));
+
+-- Cycling infrastructure. Two LineStrings inside the existing fixture
+-- footprint: one segregated cycleway, one shared on-road lane. Geometries
+-- are arbitrary; the tests assert structure (status / FeatureCollection /
+-- categories) not specific lengths.
+INSERT INTO cycling_infrastructure (osm_id, category, highway, name, surface, geom) VALUES
+  (1001, 'segregated', 'cycleway', 'Test Path A', 'asphalt',
+     ST_GeomFromText('LINESTRING(4080000 2980000, 4081000 2980000)', 3035)),
+  (1002, 'shared',     'tertiary', 'Test Lane B', NULL,
+     ST_GeomFromText('LINESTRING(4082000 2980500, 4083000 2980500)', 3035));
