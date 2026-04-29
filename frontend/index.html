@@ -87,9 +87,9 @@
     <label><input type="checkbox" data-vt="rail" checked><span class="swatch" style="background:#2ECC71"></span>Rail</label>
     <hr class="filter-sep">
     <div class="heading">Cycling infrastructure</div>
-    <label><input type="checkbox" data-cy="segregated" checked><span class="swatch-line" style="background:#2ECC71"></span><span data-cy-label="segregated">Segregated</span></label>
-    <label><input type="checkbox" data-cy="shared" checked><span class="swatch-line" style="background:#F39C12"></span><span data-cy-label="shared">Shared lane</span></label>
-    <label><input type="checkbox" data-cy="planned" checked><span class="swatch-line dashed" style="color:#9B59B6"></span><span data-cy-label="planned">Planned</span></label>
+    <label><input type="checkbox" data-cy="segregated" checked><span class="swatch-line" style="background:#0066CC"></span><span data-cy-label="segregated">Segregated</span></label>
+    <label><input type="checkbox" data-cy="shared" checked><span class="swatch-line" style="background:#FF4500"></span><span data-cy-label="shared">Shared lane</span></label>
+    <label><input type="checkbox" data-cy="planned" checked><span class="swatch-line dashed" style="color:#CC00CC"></span><span data-cy-label="planned">Planned</span></label>
   </div>
   <div id="loading">Loading stops…</div>
 
@@ -204,14 +204,14 @@
         type: 'line',
         source: 'cycling',
         filter: ['==', ['get', 'category'], 'segregated'],
-        paint: { 'line-color': '#2ECC71', 'line-width': 2.5, 'line-opacity': 0.8 }
+        paint: { 'line-color': '#0066CC', 'line-width': 2.5, 'line-opacity': 0.8 }
       });
       map.addLayer({
         id: 'cycling-shared',
         type: 'line',
         source: 'cycling',
         filter: ['==', ['get', 'category'], 'shared'],
-        paint: { 'line-color': '#F39C12', 'line-width': 2, 'line-opacity': 0.7 }
+        paint: { 'line-color': '#FF4500', 'line-width': 2, 'line-opacity': 0.7 }
       });
       map.addLayer({
         id: 'cycling-planned',
@@ -219,7 +219,7 @@
         source: 'cycling',
         filter: ['==', ['get', 'category'], 'planned'],
         paint: {
-          'line-color': '#9B59B6',
+          'line-color': '#CC00CC',
           'line-width': 2,
           'line-opacity': 0.6,
           'line-dasharray': [3, 3]
